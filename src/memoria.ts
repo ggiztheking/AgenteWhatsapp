@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type Anthropic from "@anthropic-ai/sdk";
 import { config } from "./config.js";
+import { fechaHoraLocal } from "./fechas.js";
 
 type Mensaje = Anthropic.Beta.BetaMessageParam;
 export type Modo = "agente" | "humano";
@@ -38,6 +39,14 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS mensajes_procesados (
     id TEXT PRIMARY KEY
   );
+  CREATE TABLE IF NOT EXISTS eventos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tipo TEXT NOT NULL,
+    telefono TEXT,
+    detalle TEXT,
+    fecha TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS eventos_fecha ON eventos (fecha);
 `);
 
 type FilaConversacion = { nombre: string | null; mensajes: string; modo: Modo; actualizado: number };
@@ -111,6 +120,18 @@ export function crearTurno(t: Omit<Turno, "id"> & { telefono: string }): number 
   return Number(r.lastInsertRowid);
 }
 
+export function turnosEntre(desde: string, hasta: string): Turno[] {
+  return db
+    .prepare(
+      "SELECT id, nombre, servicio, inicio, fin FROM turnos WHERE estado = 'confirmado' AND inicio >= ? AND inicio < ? ORDER BY inicio",
+    )
+    .all(desde, hasta) as Turno[];
+}
+
+export function telefonoDeTurno(id: number): string | undefined {
+  return (db.prepare("SELECT telefono FROM turnos WHERE id = ?").get(id) as { telefono: string } | undefined)?.telefono;
+}
+
 export function cancelarTurno(id: number, telefono: string): Turno | undefined {
   const turno = db
     .prepare(
@@ -128,4 +149,35 @@ export function crearPedido(telefono: string, nombre: string, detalle: string, c
     .prepare("INSERT INTO pedidos (telefono, nombre, detalle, creado) VALUES (?, ?, ?, ?)")
     .run(telefono, nombre, detalle, creado);
   return Number(r.lastInsertRowid);
+}
+
+// --- Eventos (para las métricas del dueño) ---
+
+export type TipoEvento = "mensaje" | "turno" | "cancelacion" | "pedido" | "derivacion" | "sin_lugar";
+export type Evento = { tipo: TipoEvento; telefono: string | null; detalle: string | null; fecha: string };
+
+export function registrarEvento(tipo: TipoEvento, telefono: string | null, detalle: string | null = null) {
+  db.prepare("INSERT INTO eventos (tipo, telefono, detalle, fecha) VALUES (?, ?, ?, ?)").run(
+    tipo,
+    telefono,
+    detalle,
+    fechaHoraLocal(new Date()),
+  );
+}
+
+export function eventosEntre(desde: string, hasta: string): Evento[] {
+  return db
+    .prepare("SELECT tipo, telefono, detalle, fecha FROM eventos WHERE fecha >= ? AND fecha < ? ORDER BY fecha")
+    .all(desde, hasta) as Evento[];
+}
+
+/** Clientes cuyo primer mensaje cae dentro del período. */
+export function clientesNuevosEntre(desde: string, hasta: string): number {
+  const fila = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM (SELECT MIN(fecha) AS primero FROM eventos WHERE tipo = 'mensaje' GROUP BY telefono)
+       WHERE primero >= ? AND primero < ?`,
+    )
+    .get(desde, hasta) as { n: number };
+  return Number(fila.n);
 }

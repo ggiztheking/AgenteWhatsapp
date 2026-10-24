@@ -18,6 +18,7 @@ Cliente ──► WhatsApp (Cloud API) ──► Agente (Claude) ──┬─►
 | `src/herramientas.ts` | Acciones: `consultar_disponibilidad`, `agendar_turno`, `ver_mis_turnos`, `cancelar_turno`, `tomar_pedido`, `derivar_a_humano`. |
 | `src/memoria.ts` | Base SQLite: conversaciones, turnos y pedidos. |
 | `src/whatsapp.ts` | Envío de mensajes por la Cloud API de Meta. |
+| `src/insights.ts` | Métricas para el dueño: `/resumen`, `/agenda` y el resumen diario automático. |
 | `src/server.ts` | Servidor del webhook que recibe los mensajes. |
 | `src/chat-consola.ts` | Chat de prueba en la terminal, sin WhatsApp. |
 
@@ -53,6 +54,11 @@ Poné tu número en `DUENO_TELEFONO`. Te llegan avisos de turnos nuevos, cancela
 
 - `/responder 5491112345678 Hola, soy Laura, te ayudo yo` le contesta al cliente.
 - `/reactivar 5491112345678` devuelve la charla al agente.
+- `/resumen` (o `/resumen semana`, `/resumen mes`) te manda las métricas: mensajes, clientes nuevos, turnos agendados y cancelados, pedidos, derivaciones, gente que buscó turno y no había lugar, ocupación de la agenda, facturación estimada, servicios y horarios más pedidos, y las preguntas que el agente no supo responder.
+- `/agenda` (o `/agenda mañana`, `/agenda 2026-10-30`) lista los turnos del día.
+- `/cancelar 12 me enfermé` cancela el turno #12 y le avisa al cliente.
+
+Con `RESUMEN_DIARIO_HORA=20:00` en `.env` te llega solo, todos los días, el resumen del día y la agenda de mañana. Para la facturación estimada cargá `precios` en `agenda.json`; `anticipacionCancelarHoras` define con cuánta anticipación el cliente puede cancelar solo.
 
 > WhatsApp solo deja enviar mensajes libres dentro de las 24 h posteriores al último mensaje de esa persona. Para recibir los avisos sin cortes, mandale un mensaje al número del negocio cada tanto (o configurá una plantilla aprobada).
 

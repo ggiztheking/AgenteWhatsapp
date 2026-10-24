@@ -28,6 +28,25 @@ export async function enviarTexto(para: string, texto: string): Promise<void> {
   }
 }
 
+/** Marca el mensaje como leído (tildes azules) y muestra "escribiendo..." mientras el agente piensa. */
+export async function marcarLeido(idMensaje: string): Promise<void> {
+  if (!config.whatsapp.token) return;
+  const res = await fetch(`${API}/${config.whatsapp.phoneNumberId}/messages`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.whatsapp.token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      status: "read",
+      message_id: idMensaje,
+      typing_indicator: { type: "text" },
+    }),
+  });
+  if (!res.ok) console.error(`Error marcando como leído ${idMensaje}: ${res.status} ${await res.text()}`);
+}
+
 export async function avisarAlDueno(texto: string): Promise<void> {
   if (!config.duenoTelefono) {
     console.log(`[Aviso al dueño] ${texto}`);

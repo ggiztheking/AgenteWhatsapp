@@ -15,5 +15,12 @@
     "Color": 90,
     "Brushing": 30
   },
+  "precios": {
+    "Corte de pelo": 12000,
+    "Corte + barba": 16000,
+    "Color": 35000,
+    "Brushing": 10000
+  },
+  "anticipacionCancelarHoras": 2,
   "diasCerrado": []
 }

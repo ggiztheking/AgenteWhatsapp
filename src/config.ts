@@ -15,6 +15,8 @@ export const config = {
   duenoTelefono: process.env.DUENO_TELEFONO ?? "",
   // Pasadas estas horas sin mensajes, la conversación arranca de cero.
   horasParaNuevaConversacion: 24,
+  // Hora (HH:MM) a la que el dueño recibe el resumen del día. Vacío = desactivado.
+  resumenDiarioHora: process.env.RESUMEN_DIARIO_HORA ?? "",
 };
 
 export type Agenda = {
@@ -22,6 +24,9 @@ export type Agenda = {
   horarios: Record<string, [string, string][]>;
   servicios: Record<string, number>;
   diasCerrado: string[];
+  // Opcionales: precio de cada servicio (para estimar facturación) y anticipación mínima para cancelar.
+  precios?: Record<string, number>;
+  anticipacionCancelarHoras?: number;
 };
 
 export const agenda: Agenda = JSON.parse(readFileSync("agenda.json", "utf8"));

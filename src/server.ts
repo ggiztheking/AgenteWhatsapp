@@ -1,8 +1,10 @@
 import express from "express";
 import { config } from "./config.js";
 import { responder } from "./agente.js";
+import { fechaLocal, sumarDias } from "./fechas.js";
+import { agendaDelDia, iniciarResumenDiario, resumen, type Periodo } from "./insights.js";
 import * as memoria from "./memoria.js";
-import { avisarAlDueno, enviarTexto, firmaValida } from "./whatsapp.js";
+import { avisarAlDueno, enviarTexto, firmaValida, marcarLeido } from "./whatsapp.js";
 
 const app = express();
 app.use(express.json({ verify: (req, _res, buf) => ((req as express.Request & { cuerpoCrudo?: Buffer }).cuerpoCrudo = buf) }));
@@ -65,6 +67,8 @@ async function procesar(m: MensajeEntrante, nombre: string | null) {
     return;
   }
 
+  memoria.registrarEvento("mensaje", m.from);
+
   if (memoria.obtenerModo(m.from) === "humano") {
     await avisarAlDueno(`💬 ${nombre ?? m.from} (+${m.from}): ${texto || `[${m.type}]`}`);
     return;
@@ -76,6 +80,7 @@ async function procesar(m: MensajeEntrante, nombre: string | null) {
   }
 
   console.log(`📩 ${nombre ?? ""} (+${m.from}): ${texto}`);
+  await marcarLeido(m.id).catch(() => {});
   const respuesta = await responder(m.from, nombre, texto);
   console.log(`📤 → +${m.from}: ${respuesta}`);
   await enviarTexto(m.from, respuesta);
@@ -88,10 +93,46 @@ async function comandoDelDueno(texto: string) {
   } else if (comando === "/reactivar" && telefono) {
     memoria.cambiarModo(telefono, "agente");
     await avisarAlDueno(`🤖 El agente vuelve a atender a +${telefono}.`);
+  } else if (comando === "/resumen") {
+    const periodo = (["hoy", "semana", "mes"].includes(telefono) ? telefono : "hoy") as Periodo;
+    await avisarAlDueno(resumen(periodo));
+  } else if (comando === "/agenda") {
+    // Acá el segundo argumento es el día: hoy, mañana o AAAA-MM-DD.
+    const hoy = fechaLocal(new Date());
+    const dia = /^\d{4}-\d{2}-\d{2}$/.test(telefono ?? "")
+      ? telefono
+      : ["mañana", "manana"].includes(telefono ?? "")
+        ? sumarDias(hoy, 1)
+        : hoy;
+    await avisarAlDueno(agendaDelDia(dia));
+  } else if (comando === "/cancelar" && Number(telefono)) {
+    // Acá el segundo argumento es el número de turno.
+    const id = Number(telefono);
+    const cliente = memoria.telefonoDeTurno(id);
+    const turno = cliente && memoria.cancelarTurno(id, cliente);
+    if (!cliente || !turno) {
+      await avisarAlDueno(`No encontré un turno confirmado #${id}.`);
+      return;
+    }
+    memoria.registrarEvento("cancelacion", cliente, turno.servicio);
+    const motivo = resto.length ? ` Motivo: ${resto.join(" ")}.` : "";
+    await enviarTexto(
+      cliente,
+      `Hola ${turno.nombre}, te escribimos porque tuvimos que cancelar tu turno de ${turno.servicio} del ${turno.inicio.replace("T", " a las ")}.${motivo} ¿Querés que te busquemos otro horario?`,
+    );
+    await avisarAlDueno(`❌ Turno #${id} cancelado y avisado a +${cliente}.`);
   } else {
-    await avisarAlDueno("Comandos:\n/responder <número> <mensaje>\n/reactivar <número>");
+    await avisarAlDueno(
+      "Comandos:\n/responder <número> <mensaje>\n/reactivar <número>\n" +
+        "/resumen [hoy|semana|mes]\n/agenda [hoy|mañana|AAAA-MM-DD]\n/cancelar <n° de turno> [motivo]",
+    );
   }
 }
+
+if (!config.whatsapp.appSecret) {
+  console.warn("⚠️  WHATSAPP_APP_SECRET vacío: el webhook acepta pedidos sin verificar la firma de Meta.");
+}
+iniciarResumenDiario();
 
 app.listen(config.port, () => {
   console.log(`Escuchando en http://localhost:${config.port} — webhook en /webhook`);

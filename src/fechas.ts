@@ -31,3 +31,8 @@ export function ahoraLegible(): string {
   const ahora = new Date();
   return `${diaDeLaSemana(fechaLocal(ahora))} ${fechaHoraLocal(ahora).replace("T", " ")}`;
 }
+
+export function sumarDias(fecha: string, dias: number): string {
+  const [a, m, d] = fecha.split("-").map(Number);
+  return fechaLocal(new Date(a, m - 1, d + dias));
+}

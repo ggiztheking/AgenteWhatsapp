@@ -46,9 +46,10 @@ const herramientas = [
     descripcion:
       "Devuelve los horarios libres para un servicio en una fecha. Usala siempre antes de ofrecer o agendar un turno.",
     esquema: z.strictObject({ fecha, servicio }),
-    ejecutar: ({ fecha, servicio }) => {
+    ejecutar: ({ fecha, servicio }, ctx) => {
       if (fecha < fechaLocal(new Date())) return "Esa fecha ya pasó.";
       const libres = horariosLibres(fecha, servicio);
+      if (!libres.length) memoria.registrarEvento("sin_lugar", ctx.telefono, servicio);
       return libres.length
         ? `Horarios libres el ${diaDeLaSemana(fecha)} ${fecha} para ${servicio}: ${libres.join(", ")}`
         : `No hay horarios libres el ${diaDeLaSemana(fecha)} ${fecha} para ${servicio} (cerrado o completo).`;
@@ -72,6 +73,7 @@ const herramientas = [
       const inicio = `${fecha}T${hora}`;
       const fin = `${fecha}T${aHora(aMinutos(hora) + agenda.servicios[servicio])}`;
       const id = memoria.crearTurno({ telefono: ctx.telefono, nombre, servicio, inicio, fin });
+      memoria.registrarEvento("turno", ctx.telefono, servicio);
       await avisarAlDueno(`📅 Nuevo turno #${id}: ${nombre} (+${ctx.telefono}) — ${servicio}, ${diaDeLaSemana(fecha)} ${fecha} ${hora}`);
       return `Turno #${id} confirmado: ${servicio} el ${diaDeLaSemana(fecha)} ${fecha} a las ${hora} a nombre de ${nombre}.`;
     },
@@ -94,8 +96,18 @@ const herramientas = [
     descripcion: "Cancela un turno del cliente. Confirmá con el cliente antes de cancelar.",
     esquema: z.strictObject({ turno_id: z.number().int().describe("Número del turno, obtenido de ver_mis_turnos") }),
     ejecutar: async ({ turno_id }, ctx) => {
+      const ahora = new Date();
+      const proximo = memoria.turnosFuturosDe(ctx.telefono, fechaHoraLocal(ahora)).find((t) => t.id === turno_id);
+      if (!proximo) return "No encontré ese turno entre los próximos turnos de este cliente.";
+
+      const horas = agenda.anticipacionCancelarHoras ?? 0;
+      if (horas && proximo.inicio < fechaHoraLocal(new Date(ahora.getTime() + horas * 3600_000))) {
+        return `Faltan menos de ${horas} h para el turno y la política no permite cancelarlo por acá. Ofrecé derivar a una persona.`;
+      }
+
       const turno = memoria.cancelarTurno(turno_id, ctx.telefono);
       if (!turno) return "No encontré ese turno entre los turnos de este cliente.";
+      memoria.registrarEvento("cancelacion", ctx.telefono, turno.servicio);
       await avisarAlDueno(`❌ Turno #${turno.id} cancelado: ${turno.nombre} — ${turno.servicio}, ${turno.inicio.replace("T", " ")}`);
       return `Turno #${turno.id} cancelado.`;
     },
@@ -111,6 +123,7 @@ const herramientas = [
     }),
     ejecutar: async ({ nombre, detalle }, ctx) => {
       const id = memoria.crearPedido(ctx.telefono, nombre, detalle, fechaHoraLocal(new Date()));
+      memoria.registrarEvento("pedido", ctx.telefono, detalle);
       await avisarAlDueno(`🛍️ Pedido #${id} de ${nombre} (+${ctx.telefono}):\n${detalle}`);
       return `Pedido #${id} registrado. El dueño ya fue avisado.`;
     },
@@ -123,6 +136,7 @@ const herramientas = [
     esquema: z.strictObject({ motivo: z.string().describe("Resumen breve de qué necesita el cliente") }),
     ejecutar: async ({ motivo }, ctx) => {
       memoria.cambiarModo(ctx.telefono, "humano");
+      memoria.registrarEvento("derivacion", ctx.telefono, motivo);
       await avisarAlDueno(
         `🙋 ${ctx.nombreWhatsapp ?? "Un cliente"} (+${ctx.telefono}) necesita atención: ${motivo}\n\n` +
           `Respondé con: /responder ${ctx.telefono} <mensaje>\nCuando termines: /reactivar ${ctx.telefono}`,
