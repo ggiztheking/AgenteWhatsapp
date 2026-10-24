@@ -19,6 +19,7 @@ Object.assign(process.env, {
     private_key: privateKey.export({ type: "pkcs8", format: "pem" }),
   }),
   OPENAI_API_KEY: "sk-prueba",
+  BARBERIA_URL: "",
 });
 
 const llamadas: { metodo: string; url: string; cuerpo: string }[] = [];
@@ -51,15 +52,18 @@ while (diaDeLaSemana(martes) !== "martes") martes = sumarDias(martes, 1);
 const ctx = { telefono: "5491100000001", nombreWhatsapp: "Ana" };
 const buscar = (parte: string) => llamadas.filter((l) => l.url.includes(parte));
 
-test("al agendar: evento en Google Calendar y link de seña de Mercado Pago", async () => {
-  const r = await ejecutarHerramienta("agendar_turno", { fecha: martes, hora: "10:00", servicio: "Color", nombre: "Ana" }, ctx);
-  // Color cuesta $35.000: la seña del 30% es $10.500.
-  assert.match(r.contenido, /seña de \$10\.500.*https:\/\/mp\.test\/pagar/);
+test("al agendar: evento en Google Calendar y link de anticipo de Mercado Pago", async () => {
+  const r = await ejecutarHerramienta("agendar_cita", { fecha: martes, hora: "10:30", servicio: "VIP Diamante", nombre: "Ana" }, ctx);
+  // VIP Diamante cuesta $450: el anticipo del 30% es $135.
+  assert.match(r.contenido, /anticipo de \$135 MXN.*https:\/\/mp\.test\/pagar/);
 
   const evento = JSON.parse(buscar("/calendars/")[0].cuerpo);
-  assert.equal(evento.start.dateTime, `${martes}T10:00:00`);
+  assert.equal(evento.start.dateTime, `${martes}T10:30:00`);
   assert.equal(evento.end.dateTime, `${martes}T11:30:00`);
+  assert.equal(evento.start.timeZone, "America/Merida");
   const preferencia = JSON.parse(buscar("checkout/preferences")[0].cuerpo);
+  assert.equal(preferencia.items[0].currency_id, "MXN");
+  assert.equal(preferencia.items[0].unit_price, 135);
   assert.equal(preferencia.external_reference, "turno-1");
   assert.equal(preferencia.notification_url, "https://agente.test/mercadopago");
 
@@ -84,7 +88,7 @@ test("descarga y transcribe audios", async () => {
 });
 
 test("al cancelar se borra el evento del calendario", async () => {
-  const r = await ejecutarHerramienta("cancelar_turno", { turno_id: 1 }, ctx);
-  assert.match(r.contenido, /cancelado/);
+  const r = await ejecutarHerramienta("cancelar_cita", { cita_id: 1 }, ctx);
+  assert.match(r.contenido, /cancelada/);
   assert.ok(llamadas.some((l) => l.metodo === "DELETE" && l.url.endsWith("/events/ev1")));
 });

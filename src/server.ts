@@ -2,6 +2,7 @@ import express from "express";
 import { config } from "./config.js";
 import { responder, type Imagen } from "./agente.js";
 import { fechaLocal, sumarDias } from "./fechas.js";
+import { barberiaActiva } from "./barberia.js";
 import { cancelar } from "./herramientas.js";
 import { agendaDelDia, resumen, type Periodo } from "./insights.js";
 import { calendarioActivo, transcribir, transcripcionActiva, turnoDePagoAprobado } from "./integraciones.js";
@@ -14,6 +15,7 @@ import {
   enviarTexto,
   firmaValida,
   marcarLeido,
+  mismoNumero,
 } from "./whatsapp.js";
 
 const app = express();
@@ -64,7 +66,7 @@ app.post("/webhook", (req, res) => {
   }
 });
 
-// Mercado Pago avisa acá cuando se paga una seña. Se consulta el pago a la API antes de creer nada.
+// Mercado Pago avisa aquí cuando se paga un anticipo. Se consulta el pago a la API antes de creer nada.
 app.post("/mercadopago", (req, res) => {
   res.sendStatus(200);
   const idPago = req.body?.data?.id ?? (req.query["data.id"] as string | undefined);
@@ -76,8 +78,8 @@ app.post("/mercadopago", (req, res) => {
       const turno = id && memoria.turnoPorId(id);
       if (!turno || turno.pago === "pagado") return;
       memoria.actualizarTurno(turno.id, "pago", "pagado");
-      await avisarAlDueno(`💳 Seña pagada del turno #${turno.id}: ${turno.nombre} — ${turno.servicio}, ${turno.inicio.replace("T", " ")}`);
-      await enviarTexto(turno.telefono, `¡Recibimos tu seña, ${turno.nombre}! Tu turno del ${turno.inicio.replace("T", " a las ")} quedó asegurado ✅`);
+      await avisarAlDueno(`💳 Anticipo pagado de la cita #${turno.id}: ${turno.nombre} — ${turno.servicio}, ${turno.inicio.replace("T", " ")}`);
+      await enviarTexto(turno.telefono, `¡Recibimos tu anticipo, ${turno.nombre}! Tu cita del ${turno.inicio.replace("T", " a las ")} quedó asegurada ✅`);
     })
     .catch((e) => console.error("Error procesando el aviso de Mercado Pago:", e));
 });
@@ -113,7 +115,7 @@ async function leerMensaje(m: MensajeEntrante): Promise<{ texto: string; imagen?
 }
 
 async function procesar(m: MensajeEntrante, nombre: string | null) {
-  const esDueno = !!config.duenoTelefono && m.from === config.duenoTelefono;
+  const esDueno = mismoNumero(m.from, config.duenoTelefono);
   // Cualquier mensaje del dueño abre la ventana de 24 h: se le entrega lo que haya quedado guardado.
   if (esDueno) await entregarAvisosPendientes();
 
@@ -137,8 +139,8 @@ async function procesar(m: MensajeEntrante, nombre: string | null) {
     await enviarTexto(
       m.from,
       m.type === "audio"
-        ? "Perdón, no puedo escuchar audios 🙏 ¿Me lo escribís?"
-        : "Por ahora solo puedo leer texto y fotos 🙏 ¿Me lo escribís?",
+        ? "Perdón, no puedo escuchar audios 🙏 ¿Me lo escribes?"
+        : "Por ahora solo puedo leer texto y fotos 🙏 ¿Me lo escribes?",
     );
     return;
   }
@@ -154,7 +156,7 @@ const AYUDA =
   "Comandos:\n" +
   "/responder <número> <mensaje>\n/reactivar <número>\n" +
   "/resumen [hoy|semana|mes]\n/agenda [hoy|mañana|AAAA-MM-DD]\n" +
-  "/cancelar <n° de turno> [motivo]\n/cerrar <mañana|AAAA-MM-DD>\n/abrir <mañana|AAAA-MM-DD>";
+  "/cancelar <n° de cita> [motivo]\n/cerrar <mañana|AAAA-MM-DD>\n/abrir <mañana|AAAA-MM-DD>";
 
 /** Interpreta "hoy", "mañana" o AAAA-MM-DD. */
 function leerDia(texto: string | undefined): string | null {
@@ -184,19 +186,26 @@ async function comandoDelDueno(texto: string) {
   } else if (comando === "/cancelar" && Number(argumento)) {
     const id = Number(argumento);
     const cliente = memoria.telefonoDeTurno(id);
-    const turno = cliente && (await cancelar(id, cliente));
+    let turno;
+    try {
+      turno = cliente && (await cancelar(id, cliente));
+    } catch (e) {
+      console.error(`Error cancelando la cita #${id}:`, e);
+      await avisarAlDueno(`No pude cancelar la cita #${id} en la agenda (${e instanceof Error ? e.message : e}). Cancélala desde tu panel.`);
+      return;
+    }
     if (!cliente || !turno) {
-      await avisarAlDueno(`No encontré un turno confirmado #${id}.`);
+      await avisarAlDueno(`No encontré una cita confirmada #${id}.`);
       return;
     }
     const motivo = resto.length ? ` Motivo: ${resto.join(" ")}.` : "";
-    const aviso = `Hola ${turno.nombre}, te escribimos porque tuvimos que cancelar tu turno de ${turno.servicio} del ${turno.inicio.replace("T", " a las ")}.${motivo} ¿Querés que te busquemos otro horario?`;
+    const aviso = `Hola ${turno.nombre}, te escribimos porque tuvimos que cancelar tu cita de ${turno.servicio} del ${turno.inicio.replace("T", " a las ")}.${motivo} ¿Quieres que te busquemos otro horario?`;
     const r = await enviarTexto(cliente, aviso);
     if (r.ok) memoria.agregarNota(cliente, `[Persona del negocio le escribió al cliente: ${aviso}]`);
     await avisarAlDueno(
       r.ok
-        ? `❌ Turno #${id} cancelado y avisado a +${cliente}.`
-        : `❌ Turno #${id} cancelado, pero no le pude avisar a +${cliente} (pasaron más de 24 h desde su último mensaje). Llamalo.`,
+        ? `❌ Cita #${id} cancelada y avisada a +${cliente}.`
+        : `❌ Cita #${id} cancelada, pero no le pude avisar a +${cliente} (pasaron más de 24 h desde su último mensaje). Llámale.`,
     );
   } else if ((comando === "/cerrar" || comando === "/abrir") && leerDia(argumento)) {
     const dia = leerDia(argumento)!;
@@ -204,9 +213,10 @@ async function comandoDelDueno(texto: string) {
     const turnos = memoria.turnosDelDia(dia);
     await avisarAlDueno(
       comando === "/abrir"
-        ? `✅ ${dia} vuelve a estar abierto para turnos (según el horario de agenda.json).`
-        : `🔒 ${dia} cerrado: el agente no va a dar turnos ese día.` +
-            (turnos.length ? `\nOjo, ya hay ${turnos.length} turno(s) ese día; cancelalos con /cancelar:\n${agendaDelDia(dia)}` : ""),
+        ? `✅ ${dia} vuelve a estar abierto para citas por WhatsApp.`
+        : `🔒 ${dia} cerrado: el agente no va a dar citas ese día.` +
+            (barberiaActiva() ? " Ojo: en la página web se sigue pudiendo reservar; bloquea el día también en tu panel." : "") +
+            (turnos.length ? `\nYa hay ${turnos.length} cita(s) de WhatsApp ese día; cancélalas con /cancelar:\n${agendaDelDia(dia)}` : ""),
     );
   } else {
     await avisarAlDueno(AYUDA);
@@ -217,7 +227,8 @@ if (!config.whatsapp.appSecret) {
   console.warn("⚠️  WHATSAPP_APP_SECRET vacío: el webhook acepta pedidos sin verificar la firma de Meta.");
 }
 console.log(
-  `Integraciones: Google Calendar ${calendarioActivo() ? "✅" : "—"} · Mercado Pago ${config.mercadoPago.accessToken ? "✅" : "—"}` +
+  `Agenda: ${barberiaActiva() ? `barberia-saas (${config.barberia.url}/${config.barberia.slug})` : "local (agenda.json)"}\n` +
+    `Integraciones: Google Calendar ${calendarioActivo() ? "✅" : "—"} · Mercado Pago ${config.mercadoPago.accessToken ? "✅" : "—"}` +
     ` · Audios ${transcripcionActiva() ? "✅" : "—"} · Recordatorios ${config.whatsapp.plantillaRecordatorio ? "✅" : "—"}`,
 );
 iniciarTareas();

@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { readFileSync } from "node:fs";
 
-process.env.TZ ||= "America/Argentina/Buenos_Aires";
+process.env.TZ ||= "America/Merida";
 
 export const config = {
   port: Number(process.env.PORT ?? 3000),
@@ -14,7 +14,7 @@ export const config = {
     // Plantillas aprobadas en Meta (ver README). Vacías = desactivadas.
     plantillaAviso: process.env.WHATSAPP_PLANTILLA_AVISO ?? "",
     plantillaRecordatorio: process.env.WHATSAPP_PLANTILLA_RECORDATORIO ?? "",
-    idiomaPlantillas: process.env.WHATSAPP_IDIOMA_PLANTILLAS || "es_AR",
+    idiomaPlantillas: process.env.WHATSAPP_IDIOMA_PLANTILLAS || "es_MX",
   },
   // URL pública del servidor (ej. https://mi-agente.up.railway.app), para los webhooks de Mercado Pago.
   urlPublica: (process.env.URL_PUBLICA ?? "").replace(/\/$/, ""),
@@ -29,6 +29,13 @@ export const config = {
     cuentaServicio: process.env.GOOGLE_SERVICE_ACCOUNT_JSON ?? "",
   },
   duenoTelefono: process.env.DUENO_TELEFONO ?? "",
+  moneda: process.env.MONEDA || "MXN",
+  // Agenda de barberia-saas: si está configurada, las citas se consultan y se reservan ahí (la misma agenda
+  // que usa la página web), en vez de la agenda local de agenda.json.
+  barberia: {
+    url: (process.env.BARBERIA_URL ?? "").replace(/\/$/, ""),
+    slug: process.env.BARBERIA_SLUG || "estilo-internacional",
+  },
   // Pasadas estas horas sin mensajes, la conversación arranca de cero.
   horasParaNuevaConversacion: 24,
   // Hora (HH:MM) a la que el dueño recibe el resumen del día. Vacío = desactivado.

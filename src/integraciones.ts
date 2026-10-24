@@ -1,7 +1,7 @@
 // Servicios externos opcionales. Cada uno se activa solo si su variable de entorno está configurada,
 // y si falla no frena al agente: se registra el error y el turno o la charla siguen igual.
 import { createSign } from "node:crypto";
-import { agenda, config } from "./config.js";
+import { config } from "./config.js";
 import type { Turno } from "./memoria.js";
 
 // --- Google Calendar (cuenta de servicio) ---
@@ -41,7 +41,7 @@ async function tokenDeGoogle(): Promise<string> {
 const urlEventos = () =>
   `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(config.googleCalendar.calendarId)}/events`;
 
-/** Crea el evento del turno y devuelve su id, o null si el calendario no está configurado o falla. */
+/** Crea el evento de la cita y devuelve su id, o null si el calendario no está configurado o falla. */
 export async function agregarAlCalendario(t: Turno & { telefono: string }): Promise<string | null> {
   if (!calendarioActivo()) return null;
   try {
@@ -49,8 +49,8 @@ export async function agregarAlCalendario(t: Turno & { telefono: string }): Prom
       method: "POST",
       headers: { Authorization: `Bearer ${await tokenDeGoogle()}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        summary: `${t.servicio} — ${t.nombre}`,
-        description: `Turno #${t.id} agendado por WhatsApp. Cliente: +${t.telefono}`,
+        summary: `${t.servicio} — ${t.nombre}${t.barbero ? ` (${t.barbero})` : ""}`,
+        description: `Cita #${t.id} agendada por WhatsApp. Cliente: +${t.telefono}`,
         start: { dateTime: `${t.inicio}:00`, timeZone: process.env.TZ },
         end: { dateTime: `${t.fin}:00`, timeZone: process.env.TZ },
       }),
@@ -76,27 +76,26 @@ export async function quitarDelCalendario(idEvento: string | null): Promise<void
   }
 }
 
-// --- Mercado Pago (seña del turno) ---
+// --- Mercado Pago (anticipo de la cita) ---
 
 const MP = "https://api.mercadopago.com";
 
-/** Monto de la seña de un servicio, o 0 si no se cobra seña (sin token o sin precio cargado). */
-export function montoSena(servicio: string): number {
-  const precio = agenda.precios?.[servicio];
+/** Monto del anticipo para una cita de ese precio, o 0 si no se cobra anticipo (sin token o sin precio). */
+export function montoSena(precio: number | undefined): number {
   if (!config.mercadoPago.accessToken || !precio || config.mercadoPago.senaPorcentaje <= 0) return 0;
   return Math.round((precio * config.mercadoPago.senaPorcentaje) / 100);
 }
 
-/** Crea un link de pago para la seña del turno. Devuelve null si no corresponde o falla. */
-export async function linkDeSena(t: Turno): Promise<{ link: string; monto: number } | null> {
-  const monto = montoSena(t.servicio);
+/** Crea un link de pago para el anticipo de la cita. Devuelve null si no corresponde o falla. */
+export async function linkDeSena(t: Turno, precio: number): Promise<{ link: string; monto: number } | null> {
+  const monto = montoSena(precio);
   if (!monto) return null;
   try {
     const res = await fetch(`${MP}/checkout/preferences`, {
       method: "POST",
       headers: { Authorization: `Bearer ${config.mercadoPago.accessToken}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        items: [{ title: `Seña turno #${t.id}: ${t.servicio}`, quantity: 1, unit_price: monto, currency_id: "ARS" }],
+        items: [{ title: `Anticipo cita #${t.id}: ${t.servicio}`, quantity: 1, unit_price: monto, currency_id: config.moneda }],
         external_reference: `turno-${t.id}`,
         ...(config.urlPublica && { notification_url: `${config.urlPublica}/mercadopago` }),
       }),
@@ -111,7 +110,7 @@ export async function linkDeSena(t: Turno): Promise<{ link: string; monto: numbe
 
 /**
  * Consulta un pago en Mercado Pago (no se confía en lo que trae el webhook, se pregunta a la API)
- * y devuelve el número de turno si el pago está aprobado.
+ * y devuelve el número de cita si el pago está aprobado.
  */
 export async function turnoDePagoAprobado(idPago: string): Promise<number | null> {
   const res = await fetch(`${MP}/v1/payments/${encodeURIComponent(idPago)}`, {

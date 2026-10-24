@@ -62,6 +62,10 @@ for (const [columna, tipo] of [
   ["recordado", "INTEGER NOT NULL DEFAULT 0"],
   ["evento_calendario", "TEXT"],
   ["pago", "TEXT"],
+  // Turnos reservados en la agenda de barberia-saas: su código allá, el barbero y el precio que calculó.
+  ["codigo", "TEXT"],
+  ["barbero", "TEXT"],
+  ["precio", "REAL"],
 ]) {
   if (!columnasTurnos.includes(columna)) db.exec(`ALTER TABLE turnos ADD COLUMN ${columna} ${tipo}`);
 }
@@ -122,35 +126,41 @@ export function marcarProcesado(idMensaje: string): boolean {
 
 // --- Turnos ---
 
-export type Turno = { id: number; nombre: string; servicio: string; inicio: string; fin: string };
+export type Turno = { id: number; nombre: string; servicio: string; inicio: string; fin: string; barbero?: string | null };
 
 export function turnosDelDia(fecha: string): Turno[] {
   return db
     .prepare(
-      "SELECT id, nombre, servicio, inicio, fin FROM turnos WHERE estado = 'confirmado' AND inicio LIKE ? ORDER BY inicio",
+      "SELECT id, nombre, servicio, inicio, fin, barbero FROM turnos WHERE estado = 'confirmado' AND inicio LIKE ? ORDER BY inicio",
     )
     .all(`${fecha}%`) as Turno[];
 }
 
-export function turnosFuturosDe(telefono: string, desde: string): Turno[] {
+export function turnosFuturosDe(telefono: string, desde: string): (Turno & { codigo: string | null })[] {
   return db
     .prepare(
-      "SELECT id, nombre, servicio, inicio, fin FROM turnos WHERE estado = 'confirmado' AND telefono = ? AND inicio >= ? ORDER BY inicio",
+      "SELECT id, nombre, servicio, inicio, fin, barbero, codigo FROM turnos WHERE estado = 'confirmado' AND telefono = ? AND inicio >= ? ORDER BY inicio",
     )
-    .all(telefono, desde) as Turno[];
+    .all(telefono, desde) as never;
 }
 
-export function crearTurno(t: Omit<Turno, "id"> & { telefono: string; recordado?: boolean }): number {
+export function crearTurno(
+  t: Omit<Turno, "id"> & { telefono: string; recordado?: boolean; codigo?: string; precio?: number },
+): number {
   const r = db
-    .prepare("INSERT INTO turnos (telefono, nombre, servicio, inicio, fin, recordado) VALUES (?, ?, ?, ?, ?, ?)")
-    .run(t.telefono, t.nombre, t.servicio, t.inicio, t.fin, t.recordado ? 1 : 0);
+    .prepare(
+      "INSERT INTO turnos (telefono, nombre, servicio, inicio, fin, recordado, codigo, barbero, precio) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .run(t.telefono, t.nombre, t.servicio, t.inicio, t.fin, t.recordado ? 1 : 0, t.codigo ?? null, t.barbero ?? null, t.precio ?? null);
   return Number(r.lastInsertRowid);
 }
 
-export function turnoPorId(id: number): (Turno & { telefono: string; pago: string | null; evento_calendario: string | null }) | undefined {
+export function turnoPorId(
+  id: number,
+): (Turno & { telefono: string; pago: string | null; evento_calendario: string | null; codigo: string | null; precio: number | null }) | undefined {
   return db
     .prepare(
-      "SELECT id, telefono, nombre, servicio, inicio, fin, pago, evento_calendario FROM turnos WHERE id = ? AND estado = 'confirmado'",
+      "SELECT id, telefono, nombre, servicio, inicio, fin, barbero, pago, evento_calendario, codigo, precio FROM turnos WHERE id = ? AND estado = 'confirmado'",
     )
     .get(id) as never;
 }
@@ -169,12 +179,12 @@ export function turnosParaRecordar(desde: string, hasta: string): (Turno & { tel
     .all(desde, hasta) as never;
 }
 
-export function turnosEntre(desde: string, hasta: string): Turno[] {
+export function turnosEntre(desde: string, hasta: string): (Turno & { precio: number | null })[] {
   return db
     .prepare(
-      "SELECT id, nombre, servicio, inicio, fin FROM turnos WHERE estado = 'confirmado' AND inicio >= ? AND inicio < ? ORDER BY inicio",
+      "SELECT id, nombre, servicio, inicio, fin, barbero, precio FROM turnos WHERE estado = 'confirmado' AND inicio >= ? AND inicio < ? ORDER BY inicio",
     )
-    .all(desde, hasta) as Turno[];
+    .all(desde, hasta) as never;
 }
 
 export function telefonoDeTurno(id: number): string | undefined {

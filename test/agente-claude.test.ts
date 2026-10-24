@@ -33,6 +33,7 @@ Object.assign(process.env, {
   DB_PATH: ":memory:",
   WHATSAPP_TOKEN: "",
   DUENO_TELEFONO: "",
+  BARBERIA_URL: "",
   MERCADOPAGO_ACCESS_TOKEN: "",
   GOOGLE_CALENDAR_ID: "",
 });
@@ -52,30 +53,31 @@ const usar = (id: string, name: string, input: object) => ({
 
 test("consulta, agenda con herramientas y responde al cliente", async () => {
   respuestas = [
-    usar("t1", "consultar_disponibilidad", { fecha: lunes, servicio: "Corte de pelo" }),
-    texto("El lunes tengo 10:00, 10:30 y más. ¿Cuál te queda bien?"),
+    usar("t1", "consultar_disponibilidad", { fecha: lunes, servicio: "Corte y barba" }),
+    texto("El lunes tengo 9:30, 10:30 y más. ¿Cuál te queda bien?"),
   ];
-  const r1 = await responder("5491100000001", "Ana", "hola, turno para corte el lunes?");
+  const r1 = await responder("5219991234567", "Ana", "hola, ¿tienes cita para corte y barba el lunes?");
   assert.match(r1, /¿Cuál te queda bien\?/);
 
   const [primero, segundo] = pedidos.splice(0);
   assert.equal(primero.model, "claude-opus-5-5");
-  assert.match(primero.system, /Peluquería|negocio/);
+  assert.match(primero.system, /español de México/);
+  assert.match(primero.system, /Estilo Internacional/);
   assert.deepEqual(
     primero.tools.map((t) => t.name).sort(),
-    ["agendar_turno", "cancelar_turno", "consultar_disponibilidad", "derivar_a_humano", "tomar_pedido", "ver_mis_turnos"],
+    ["agendar_cita", "cancelar_cita", "consultar_disponibilidad", "derivar_a_humano", "tomar_pedido", "ver_mis_citas"],
   );
   assert.match(JSON.stringify(primero.messages[0].content), /nombre en WhatsApp: Ana/);
   // La segunda vuelta lleva el resultado real de la herramienta.
   const resultado = JSON.stringify(segundo.messages.at(-1));
   assert.match(resultado, /tool_result/);
-  assert.match(resultado, /Horarios libres.*10:00/);
+  assert.match(resultado, /Horarios libres.*09:30/);
 
   respuestas = [
-    usar("t2", "agendar_turno", { fecha: lunes, hora: "10:30", servicio: "Corte de pelo", nombre: "Ana" }),
+    usar("t2", "agendar_cita", { fecha: lunes, hora: "10:30", servicio: "Corte y barba", nombre: "Ana" }),
     texto("¡Listo Ana! Te espero el lunes a las 10:30 ✂️"),
   ];
-  const r2 = await responder("5491100000001", "Ana", "10:30, soy Ana");
+  const r2 = await responder("5219991234567", "Ana", "a las 10:30, soy Ana");
   assert.match(r2, /10:30/);
   assert.equal(memoria.turnosDelDia(lunes).length, 1);
   // El historial completo viaja en cada pedido: la segunda charla incluye la primera.

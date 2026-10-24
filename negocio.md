@@ -1,30 +1,33 @@
-# Peluquería Ejemplo
+# Estilo Internacional · Barbería
 
-Editá este archivo con los datos reales de tu negocio. El agente solo responde con lo que está acá.
+Tu estilo. Sin fronteras. Un corte que habla por ti. Un espacio para sentirte tú.
 
 ## Datos
-- Dirección: Av. Siempreviva 742, CABA
-- Teléfono / WhatsApp: este mismo número
-- Instagram: @peluqueriaejemplo
+- Dirección: Calle 158 diagonal y Calle 135, Fracc. Los Héroes, Mérida, Yucatán.
+- Cómo llegar (Google Maps): https://maps.app.goo.gl/NpfSt23Eorm4wgd37
+- Teléfono: +52 962 329 5413
 
-## Horarios de atención
-- Lunes a viernes: 10:00 a 19:00
-- Sábados: 10:00 a 14:00
-- Domingos y feriados: cerrado
+## Horario
+- 9:30 AM a 11:00 PM.
 
-## Servicios (duración · precio)
-- Corte de pelo: 30 min · $12.000
-- Corte + barba: 45 min · $16.000
-- Color: 90 min · $35.000
-- Brushing: 30 min · $10.000
+## Paquetes (precios en pesos mexicanos, MXN)
+- *Elige tu corte* — $200: cualquier corte.
+- *Corte Fresco* — $280: cualquier corte, lavado y peinado.
+- *Corte y barba* — $350: cualquier corte y arreglo de barba.
+- *VIP Diamante* — $450: cualquier corte, arreglo de barba, lavado, peinado y toalla caliente.
 
-## Productos a la venta (se pueden pedir y se retiran en el local)
-- Shampoo profesional 500 ml: $9.000
-- Cera para peinar: $7.500
+## Extras (se suman al paquete)
+- Cejas: +$40
+- Lavado: +$50 (ya viene incluido en Corte Fresco y VIP Diamante, ahí no se cobra)
+- Masaje relajante de cuero cabelludo: +$60
 
-## Medios de pago
-Efectivo, transferencia y Mercado Pago.
+## Estilos
+Cualquier corte entra en el precio del paquete: degradado bajo, medio o alto, taper, clásico, texturizado, etc. El resultado se adapta al cabello de cada cliente. Si el cliente manda una foto del corte que quiere, el barbero lo toma como referencia.
 
-## Políticas
-- Los turnos se cancelan con al menos 2 horas de anticipación.
-- Tolerancia de 10 minutos; pasado ese tiempo el turno puede reprogramarse.
+## Citas
+- El cliente elige paquete, extras si quiere, barbero (o "cualquiera") y horario.
+- La cita queda apartada al confirmarla.
+- Si va a llegar tarde, que nos escriba por WhatsApp para ver si alcanzamos a atenderlo o movemos su cita.
+
+## Pago
+Se paga en la barbería al terminar el servicio.

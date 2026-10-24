@@ -8,6 +8,18 @@ const FUERA_DE_VENTANA = 131047;
 
 type Resultado = { ok: true } | { ok: false; codigo?: number };
 
+/**
+ * Los celulares de México llegan en el webhook como 521 + 10 dígitos, pero la Cloud API espera 52 + 10 dígitos
+ * para enviarles (con el 1 el envío falla mientras el número está en la lista de prueba).
+ */
+export const numeroParaEnviar = (telefono: string) => {
+  const d = telefono.replace(/\D/g, "");
+  return /^521\d{10}$/.test(d) ? `52${d.slice(3)}` : d;
+};
+
+/** Compara dos números ignorando el formato (+52, 521, espacios). */
+export const mismoNumero = (a: string, b: string) => !!a && !!b && numeroParaEnviar(a) === numeroParaEnviar(b);
+
 async function enviar(para: string, cuerpo: Record<string, unknown>): Promise<Resultado> {
   const res = await fetch(`${API}/${config.whatsapp.phoneNumberId}/messages`, {
     method: "POST",
@@ -15,7 +27,7 @@ async function enviar(para: string, cuerpo: Record<string, unknown>): Promise<Re
       Authorization: `Bearer ${config.whatsapp.token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ messaging_product: "whatsapp", to: para, ...cuerpo }),
+    body: JSON.stringify({ messaging_product: "whatsapp", to: numeroParaEnviar(para), ...cuerpo }),
   });
   if (res.ok) return { ok: true };
   const detalle = await res.text();

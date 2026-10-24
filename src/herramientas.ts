@@ -1,6 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
-import { agenda } from "./config.js";
+import * as barberia from "./barberia.js";
+import { agenda, config } from "./config.js";
 import { aHora, aMinutos, diaDeLaSemana, fechaHoraLocal, fechaLocal } from "./fechas.js";
 import { agregarAlCalendario, linkDeSena, quitarDelCalendario } from "./integraciones.js";
 import * as memoria from "./memoria.js";
@@ -18,10 +19,18 @@ type Herramienta<S extends z.ZodType> = {
 
 const definir = <S extends z.ZodType>(h: Herramienta<S>) => h;
 
-const fecha = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("Fecha en formato AAAA-MM-DD");
-const servicio = z.enum(Object.keys(agenda.servicios) as [string, ...string[]]).describe("Servicio pedido");
+export const dinero = (n: number) => `$${Math.round(n).toLocaleString("es-MX")} ${config.moneda}`;
+const cuando = (inicio: string) => `${diaDeLaSemana(inicio.slice(0, 10))} ${inicio.slice(0, 10)} a las ${inicio.slice(11)}`;
 
-function horariosLibres(dia: string, nombreServicio: string): string[] {
+const fecha = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("Fecha en formato AAAA-MM-DD");
+const hora = z.string().regex(/^\d{2}:\d{2}$/).describe("Hora de inicio HH:MM, tal como salió en la disponibilidad");
+const nombre = z.string().describe("Nombre del cliente");
+
+// --- Agenda local (agenda.json + SQLite), cuando no hay barberia-saas configurada ---
+
+const servicioLocal = z.enum(Object.keys(agenda.servicios) as [string, ...string[]]).describe("Servicio pedido");
+
+function horariosLibresLocal(dia: string, nombreServicio: string): string[] {
   const duracion = agenda.servicios[nombreServicio];
   if (agenda.diasCerrado.includes(dia) || memoria.diaCerrado(dia)) return [];
 
@@ -41,107 +50,233 @@ function horariosLibres(dia: string, nombreServicio: string): string[] {
   return libres;
 }
 
-/** Cancela un turno, lo saca del calendario y lo registra. Lo usan el agente y el comando /cancelar del dueño. */
+// --- Lo que pasa después de reservar, en los dos modos ---
+
+async function registrarReserva(
+  ctx: Contexto,
+  r: { nombre: string; servicio: string; inicio: string; fin: string; precio?: number; barbero?: string; codigo?: string },
+): Promise<string> {
+  // Si la cita es dentro de las próximas 24 h no hace falta mandarle recordatorio.
+  const recordado = r.inicio <= fechaHoraLocal(new Date(Date.now() + 24 * 3600_000));
+  const id = memoria.crearTurno({ telefono: ctx.telefono, ...r, recordado });
+  memoria.registrarEvento("turno", ctx.telefono, r.servicio.split(" + ")[0]);
+
+  const turno = { id, nombre: r.nombre, servicio: r.servicio, inicio: r.inicio, fin: r.fin, barbero: r.barbero };
+  const evento = await agregarAlCalendario({ ...turno, telefono: ctx.telefono });
+  if (evento) memoria.actualizarTurno(id, "evento_calendario", evento);
+  const sena = r.precio ? await linkDeSena(turno, r.precio) : null;
+  if (sena) memoria.actualizarTurno(id, "pago", "pendiente");
+
+  const conBarbero = r.barbero ? ` con ${r.barbero}` : "";
+  const precio = r.precio ? ` · ${dinero(r.precio)}` : "";
+  await avisarAlDueno(`📅 Nueva cita #${id}: ${r.nombre} (+${ctx.telefono}) — ${r.servicio}${conBarbero}, ${cuando(r.inicio)}${precio}`);
+  const confirmada = `Cita #${id} confirmada: ${r.servicio}${conBarbero}, ${cuando(r.inicio)}, a nombre de ${r.nombre}${precio ? `. Total: ${dinero(r.precio!)}` : ""}.`;
+  return sena
+    ? `${confirmada} Pásale al cliente este link para pagar el anticipo de ${dinero(sena.monto)} con Mercado Pago (cópialo tal cual): ${sena.link}`
+    : confirmada;
+}
+
+/** Cancela una cita (también en barberia-saas si se reservó ahí), la saca del calendario y la registra. */
 export async function cancelar(id: number, telefono: string): Promise<memoria.Turno | undefined> {
   const datos = memoria.turnoPorId(id);
+  if (!datos || datos.telefono !== telefono) return undefined;
+  if (datos.codigo) {
+    try {
+      await barberia.cancelar(datos.codigo);
+    } catch (e) {
+      // 404: allá ya estaba cancelada o atendida; se cancela igual aquí para que no quede colgada.
+      if (!(e instanceof barberia.ErrorAgenda && e.estado === 404)) throw e;
+    }
+  }
   const turno = memoria.cancelarTurno(id, telefono);
   if (!turno) return undefined;
-  memoria.registrarEvento("cancelacion", telefono, turno.servicio);
-  await quitarDelCalendario(datos?.evento_calendario ?? null);
+  memoria.registrarEvento("cancelacion", telefono, turno.servicio.split(" + ")[0]);
+  await quitarDelCalendario(datos.evento_calendario);
   return turno;
 }
 
-const herramientas = [
+function respuestaDeError(e: unknown): string {
+  if (!(e instanceof barberia.ErrorAgenda)) throw e;
+  if (e.estado === 429) return "La agenda no está aceptando más reservas por ahora. Ofrécele pasar con una persona del negocio.";
+  return `La agenda respondió: ${e.message}`;
+}
+
+// --- Herramientas de citas ---
+
+const citasLocales = [
   definir({
     nombre: "consultar_disponibilidad",
-    descripcion:
-      "Devuelve los horarios libres para un servicio en una fecha. Usala siempre antes de ofrecer o agendar un turno.",
-    esquema: z.strictObject({ fecha, servicio }),
+    descripcion: "Devuelve los horarios libres para un servicio en una fecha. Úsala siempre antes de ofrecer o agendar una cita.",
+    esquema: z.strictObject({ fecha, servicio: servicioLocal }),
     ejecutar: ({ fecha, servicio }, ctx) => {
       if (fecha < fechaLocal(new Date())) return "Esa fecha ya pasó.";
-      const libres = horariosLibres(fecha, servicio);
+      const libres = horariosLibresLocal(fecha, servicio);
       if (!libres.length) memoria.registrarEvento("sin_lugar", ctx.telefono, servicio);
       return libres.length
         ? `Horarios libres el ${diaDeLaSemana(fecha)} ${fecha} para ${servicio}: ${libres.join(", ")}`
-        : `No hay horarios libres el ${diaDeLaSemana(fecha)} ${fecha} para ${servicio} (cerrado o completo).`;
+        : `No hay horarios libres el ${diaDeLaSemana(fecha)} ${fecha} para ${servicio} (cerrado o lleno).`;
     },
   }),
 
   definir({
-    nombre: "agendar_turno",
+    nombre: "agendar_cita",
+    descripcion: "Reserva una cita. Úsala solo cuando el cliente confirmó explícitamente servicio, fecha, hora y su nombre.",
+    esquema: z.strictObject({ fecha, hora, servicio: servicioLocal, nombre }),
+    ejecutar: async ({ fecha, hora, servicio, nombre }, ctx) => {
+      if (!horariosLibresLocal(fecha, servicio).includes(hora)) {
+        return `El horario ${hora} del ${fecha} no está disponible. Vuelve a consultar la disponibilidad.`;
+      }
+      return registrarReserva(ctx, {
+        nombre,
+        servicio,
+        inicio: `${fecha}T${hora}`,
+        fin: `${fecha}T${aHora(aMinutos(hora) + agenda.servicios[servicio])}`,
+        precio: agenda.precios?.[servicio],
+      });
+    },
+  }),
+];
+
+const citasBarberia = [
+  definir({
+    nombre: "consultar_disponibilidad",
     descripcion:
-      "Reserva un turno. Solo usala cuando el cliente confirmó explícitamente servicio, fecha, hora y su nombre.",
+      "Devuelve los horarios libres de una fecha en la agenda de la barbería, con los barberos libres en cada horario. " +
+      "Úsala siempre antes de ofrecer o agendar una cita.",
     esquema: z.strictObject({
       fecha,
-      hora: z.string().regex(/^\d{2}:\d{2}$/).describe("Hora de inicio HH:MM"),
-      servicio,
-      nombre: z.string().describe("Nombre del cliente"),
+      barbero: z.string().describe('Nombre del barbero que pidió el cliente, o "cualquiera"'),
     }),
-    ejecutar: async ({ fecha, hora, servicio, nombre }, ctx) => {
-      if (!horariosLibres(fecha, servicio).includes(hora)) {
-        return `El horario ${hora} del ${fecha} no está disponible. Consultá la disponibilidad de nuevo.`;
+    ejecutar: async ({ fecha, barbero }, ctx) => {
+      if (fecha < fechaLocal(new Date())) return "Esa fecha ya pasó.";
+      if (memoria.diaCerrado(fecha)) return `El ${diaDeLaSemana(fecha)} ${fecha} la barbería está cerrada.`;
+      try {
+        const { barberos } = await barberia.info();
+        const pedido = barbero.toLowerCase() === "cualquiera" ? undefined : barbero;
+        if (pedido && !barberos.some((b) => b.toLowerCase() === pedido.toLowerCase())) {
+          return `No hay un barbero llamado ${barbero}. Los barberos son: ${barberos.join(", ")}.`;
+        }
+        const libres = await barberia.horariosLibres(fecha, pedido);
+        if (!libres.length) {
+          memoria.registrarEvento("sin_lugar", ctx.telefono, pedido ?? "cualquiera");
+          return `No hay horarios libres el ${diaDeLaSemana(fecha)} ${fecha}${pedido ? ` con ${pedido}` : ""} (cerrado o lleno).`;
+        }
+        return (
+          `Horarios libres el ${diaDeLaSemana(fecha)} ${fecha}:\n` +
+          libres.map((l) => `${l.hora} (${l.barberos.join(", ")})`).join("\n")
+        );
+      } catch (e) {
+        return respuestaDeError(e);
       }
-      const inicio = `${fecha}T${hora}`;
-      const fin = `${fecha}T${aHora(aMinutos(hora) + agenda.servicios[servicio])}`;
-      // Si el turno es dentro de las próximas 24 h no hace falta mandarle recordatorio.
-      const recordado = inicio <= fechaHoraLocal(new Date(Date.now() + 24 * 3600_000));
-      const id = memoria.crearTurno({ telefono: ctx.telefono, nombre, servicio, inicio, fin, recordado });
-      memoria.registrarEvento("turno", ctx.telefono, servicio);
-
-      const turno = { id, nombre, servicio, inicio, fin };
-      const evento = await agregarAlCalendario({ ...turno, telefono: ctx.telefono });
-      if (evento) memoria.actualizarTurno(id, "evento_calendario", evento);
-      const sena = await linkDeSena(turno);
-      if (sena) memoria.actualizarTurno(id, "pago", "pendiente");
-
-      await avisarAlDueno(`📅 Nuevo turno #${id}: ${nombre} (+${ctx.telefono}) — ${servicio}, ${diaDeLaSemana(fecha)} ${fecha} ${hora}`);
-      const confirmado = `Turno #${id} confirmado: ${servicio} el ${diaDeLaSemana(fecha)} ${fecha} a las ${hora} a nombre de ${nombre}.`;
-      return sena
-        ? `${confirmado} Pasale al cliente este link para pagar la seña de $${sena.monto.toLocaleString("es-AR")} por Mercado Pago (copialo tal cual): ${sena.link}`
-        : confirmado;
     },
   }),
 
   definir({
-    nombre: "ver_mis_turnos",
-    descripcion: "Lista los próximos turnos confirmados del cliente que está escribiendo.",
+    nombre: "agendar_cita",
+    descripcion:
+      "Reserva una cita en la agenda de la barbería. Úsala solo cuando el cliente confirmó explícitamente paquete, " +
+      "extras (si quiere), fecha, hora, barbero y su nombre.",
+    esquema: z.strictObject({
+      fecha,
+      hora,
+      paquete: z.string().describe("Nombre exacto del paquete o servicio, tal como aparece en la información del negocio"),
+      extras: z.array(z.string()).describe("Nombres exactos de los extras que agregó el cliente; vacío si no quiere ninguno"),
+      barbero: z.string().describe('Nombre del barbero elegido, o "cualquiera"'),
+      nombre,
+    }),
+    ejecutar: async ({ fecha, hora, paquete, extras, barbero, nombre }, ctx) => {
+      try {
+        const cat = await barberia.catalogo();
+        const idsExtras: number[] = [];
+        for (const pedido of extras) {
+          const extra = cat.extras.find((x) => x.nombre.toLowerCase() === pedido.toLowerCase());
+          if (!extra) return `No existe el extra "${pedido}". Los extras son: ${cat.extras.map((x) => x.nombre).join(", ")}.`;
+          idsExtras.push(extra.id);
+        }
+        const exacto = cat.paquetes.find((p) => p.nombre.toLowerCase() === paquete.toLowerCase())?.nombre ?? paquete;
+
+        const r = await barberia.reservar({
+          cliente: nombre,
+          telefono: ctx.telefono,
+          servicio: exacto,
+          extras: idsExtras,
+          fecha,
+          hora,
+          barbero: barbero.toLowerCase() === "cualquiera" ? "cualquiera" : barbero,
+        });
+        const servicio = [exacto, ...extras].join(" + ");
+        return registrarReserva(ctx, {
+          nombre,
+          servicio,
+          inicio: `${fecha}T${hora}`,
+          fin: await barberia.finDeCita(fecha, hora),
+          precio: r.precio,
+          barbero: r.barbero,
+          codigo: r.codigo,
+        });
+      } catch (e) {
+        return respuestaDeError(e);
+      }
+    },
+  }),
+];
+
+const comunes = [
+  definir({
+    nombre: "ver_mis_citas",
+    descripcion: "Lista las próximas citas confirmadas del cliente que está escribiendo.",
     esquema: z.strictObject({}),
-    ejecutar: (_input, ctx) => {
-      const turnos = memoria.turnosFuturosDe(ctx.telefono, fechaHoraLocal(new Date()));
+    ejecutar: async (_input, ctx) => {
+      let turnos = memoria.turnosFuturosDe(ctx.telefono, fechaHoraLocal(new Date()));
+      // Las citas de la agenda web pudieron cancelarse desde la página o el panel: se revisa su estado allá.
+      const codigos = turnos.flatMap((t) => (t.codigo ? [t.codigo] : []));
+      if (codigos.length) {
+        try {
+          const vivas = new Set((await barberia.citas(codigos)).filter((c) => c.estado !== "cancelada").map((c) => c.codigo));
+          for (const t of turnos) if (t.codigo && !vivas.has(t.codigo)) memoria.cancelarTurno(t.id, ctx.telefono);
+          turnos = turnos.filter((t) => !t.codigo || vivas.has(t.codigo));
+        } catch (e) {
+          console.error("No se pudo revisar el estado de las citas en la agenda:", e);
+        }
+      }
       return turnos.length
-        ? turnos.map((t) => `#${t.id}: ${t.servicio}, ${diaDeLaSemana(t.inicio.slice(0, 10))} ${t.inicio.replace("T", " ")}`).join("\n")
-        : "El cliente no tiene turnos próximos.";
+        ? turnos.map((t) => `#${t.id}: ${t.servicio}${t.barbero ? ` con ${t.barbero}` : ""}, ${cuando(t.inicio)}`).join("\n")
+        : "El cliente no tiene citas próximas agendadas por WhatsApp.";
     },
   }),
 
   definir({
-    nombre: "cancelar_turno",
-    descripcion: "Cancela un turno del cliente. Confirmá con el cliente antes de cancelar.",
-    esquema: z.strictObject({ turno_id: z.number().int().describe("Número del turno, obtenido de ver_mis_turnos") }),
-    ejecutar: async ({ turno_id }, ctx) => {
+    nombre: "cancelar_cita",
+    descripcion: "Cancela una cita del cliente. Confirma con el cliente antes de cancelar.",
+    esquema: z.strictObject({ cita_id: z.number().int().describe("Número de la cita, obtenido de ver_mis_citas") }),
+    ejecutar: async ({ cita_id }, ctx) => {
       const ahora = new Date();
-      const proximo = memoria.turnosFuturosDe(ctx.telefono, fechaHoraLocal(ahora)).find((t) => t.id === turno_id);
-      if (!proximo) return "No encontré ese turno entre los próximos turnos de este cliente.";
+      const proxima = memoria.turnosFuturosDe(ctx.telefono, fechaHoraLocal(ahora)).find((t) => t.id === cita_id);
+      if (!proxima) return "No encontré esa cita entre las próximas citas de este cliente.";
 
       const horas = agenda.anticipacionCancelarHoras ?? 0;
-      if (horas && proximo.inicio < fechaHoraLocal(new Date(ahora.getTime() + horas * 3600_000))) {
-        return `Faltan menos de ${horas} h para el turno y la política no permite cancelarlo por acá. Ofrecé derivar a una persona.`;
+      if (horas && proxima.inicio < fechaHoraLocal(new Date(ahora.getTime() + horas * 3600_000))) {
+        return `Faltan menos de ${horas} h para la cita y la política no permite cancelarla por aquí. Ofrécele pasar con una persona.`;
       }
 
-      const turno = await cancelar(turno_id, ctx.telefono);
-      if (!turno) return "No encontré ese turno entre los turnos de este cliente.";
-      await avisarAlDueno(`❌ Turno #${turno.id} cancelado: ${turno.nombre} — ${turno.servicio}, ${turno.inicio.replace("T", " ")}`);
-      return `Turno #${turno.id} cancelado.`;
+      try {
+        const turno = await cancelar(cita_id, ctx.telefono);
+        if (!turno) return "No encontré esa cita entre las citas de este cliente.";
+        await avisarAlDueno(`❌ Cita #${turno.id} cancelada: ${turno.nombre} — ${turno.servicio}, ${cuando(turno.inicio)}`);
+        return `Cita #${turno.id} cancelada.`;
+      } catch (e) {
+        return respuestaDeError(e);
+      }
     },
   }),
 
   definir({
     nombre: "tomar_pedido",
     descripcion:
-      "Registra un pedido de productos del negocio y avisa al dueño. Usala cuando el cliente confirmó qué quiere y su nombre.",
+      "Registra un pedido de productos del negocio y avisa al dueño. Úsala cuando el cliente confirmó qué quiere y su nombre.",
     esquema: z.strictObject({
-      nombre: z.string().describe("Nombre del cliente"),
-      detalle: z.string().describe("Productos, cantidades y cualquier aclaración (retiro, horario, etc.)"),
+      nombre,
+      detalle: z.string().describe("Productos, cantidades y cualquier aclaración (cuándo pasa a recogerlo, etc.)"),
     }),
     ejecutar: async ({ nombre, detalle }, ctx) => {
       const id = memoria.crearPedido(ctx.telefono, nombre, detalle, fechaHoraLocal(new Date()));
@@ -154,19 +289,21 @@ const herramientas = [
   definir({
     nombre: "derivar_a_humano",
     descripcion:
-      "Pasa la conversación a una persona del negocio. Usala si el cliente lo pide, está molesto, o preguntás algo que no está en la información del negocio.",
+      "Pasa la conversación a una persona del negocio. Úsala si el cliente lo pide, está molesto, o pregunta algo que no está en la información del negocio.",
     esquema: z.strictObject({ motivo: z.string().describe("Resumen breve de qué necesita el cliente") }),
     ejecutar: async ({ motivo }, ctx) => {
       memoria.cambiarModo(ctx.telefono, "humano");
       memoria.registrarEvento("derivacion", ctx.telefono, motivo);
       await avisarAlDueno(
         `🙋 ${ctx.nombreWhatsapp ?? "Un cliente"} (+${ctx.telefono}) necesita atención: ${motivo}\n\n` +
-          `Respondé con: /responder ${ctx.telefono} <mensaje>\nCuando termines: /reactivar ${ctx.telefono}`,
+          `Respóndele con: /responder ${ctx.telefono} <mensaje>\nCuando termines: /reactivar ${ctx.telefono}`,
       );
-      return "Conversación derivada. Avisale al cliente que en breve le responde una persona.";
+      return "Conversación pasada a una persona. Avísale al cliente que en breve le responde alguien del negocio.";
     },
   }),
 ];
+
+const herramientas = [...(barberia.barberiaActiva() ? citasBarberia : citasLocales), ...comunes];
 
 export const definicionesHerramientas: Anthropic.Beta.BetaTool[] = herramientas.map((h) => {
   const { $schema: _, ...schema } = z.toJSONSchema(h.esquema) as Record<string, unknown>;

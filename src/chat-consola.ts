@@ -6,12 +6,16 @@ import { config } from "./config.js";
 
 config.whatsapp.token = ""; // los avisos al dueño se muestran en pantalla en vez de enviarse
 
-const telefono = "5490000000000";
+const telefono = "5219990000000";
 const rl = createInterface({ input: process.stdin, output: process.stdout });
-console.log("Chat de prueba. Escribí como si fueras un cliente (Ctrl+C para salir).\n");
+console.log("Chat de prueba. Escribe como si fueras un cliente (Ctrl+C para salir).");
+if (config.barberia.url) {
+  console.log(`⚠️  Las citas que agendes se guardan de verdad en ${config.barberia.url} (${config.barberia.slug}).`);
+}
+console.log();
 
 while (true) {
-  const texto = (await rl.question("Vos: ")).trim();
+  const texto = (await rl.question("Tú: ")).trim();
   if (!texto) continue;
   const respuesta = await responder(telefono, "Cliente de prueba", texto);
   console.log(`\nAgente: ${respuesta}\n`);

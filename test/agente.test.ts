@@ -12,6 +12,7 @@ Object.assign(process.env, {
   GOOGLE_CALENDAR_ID: "",
   OPENAI_API_KEY: "",
   RESUMEN_DIARIO_HORA: "",
+  BARBERIA_URL: "",
 });
 
 const { ejecutarHerramienta } = await import("../src/herramientas.js");
@@ -19,11 +20,14 @@ const { resumen, agendaDelDia } = await import("../src/insights.js");
 const { diaDeLaSemana, fechaHoraLocal, fechaLocal, sumarDias } = await import("../src/fechas.js");
 const { enviarRecordatorios } = await import("../src/tareas.js");
 const memoria = await import("../src/memoria.js");
+const { agenda } = await import("../src/config.js");
+const { mismoNumero, numeroParaEnviar } = await import("../src/whatsapp.js");
+agenda.anticipacionCancelarHoras = 2;
 
 const ctx = { telefono: "5491100000001", nombreWhatsapp: "Ana" };
 const otro = { telefono: "5491100000002", nombreWhatsapp: "Beto" };
 
-/** Próximo lunes a partir de la semana que viene (siempre abierto según agenda.json). */
+/** Próximo lunes a partir de la semana que viene. */
 function proximoLunes(): string {
   let f = sumarDias(fechaLocal(new Date()), 7);
   while (diaDeLaSemana(f) !== "lunes") f = sumarDias(f, 1);
@@ -32,55 +36,54 @@ function proximoLunes(): string {
 
 const herramienta = async (nombre: string, input: unknown, c = ctx) => (await ejecutarHerramienta(nombre, input, c)).contenido;
 
-test("ofrece horarios dentro del horario de atención", async () => {
-  const r = await herramienta("consultar_disponibilidad", { fecha: proximoLunes(), servicio: "Corte de pelo" });
-  assert.match(r, /10:00/);
-  assert.match(r, /18:30/);
-  assert.doesNotMatch(r, /19:00/);
+test("ofrece horarios dentro del horario de atención (9:30 a 23:00)", async () => {
+  const r = await herramienta("consultar_disponibilidad", { fecha: proximoLunes(), servicio: "Elige tu corte" });
+  assert.match(r, /09:30/);
+  assert.match(r, /21:30/);
+  // Una cita de 60 min a las 22:30 terminaría después del cierre.
+  assert.doesNotMatch(r, /22:30/);
 });
 
-test("no da turnos los domingos ni en días cerrados por el dueño", async () => {
-  let domingo = fechaLocal(new Date());
-  while (diaDeLaSemana(domingo) !== "domingo") domingo = sumarDias(domingo, 1);
-  assert.match(await herramienta("consultar_disponibilidad", { fecha: domingo, servicio: "Color" }), /No hay horarios/);
-
+test("no da citas en días cerrados por el dueño", async () => {
   const dia = sumarDias(proximoLunes(), 1);
   memoria.cerrarDia(dia, true);
-  assert.match(await herramienta("consultar_disponibilidad", { fecha: dia, servicio: "Color" }), /No hay horarios/);
+  assert.match(await herramienta("consultar_disponibilidad", { fecha: dia, servicio: "VIP Diamante" }), /No hay horarios/);
   memoria.cerrarDia(dia, false);
-  assert.match(await herramienta("consultar_disponibilidad", { fecha: dia, servicio: "Color" }), /Horarios libres/);
+  assert.match(await herramienta("consultar_disponibilidad", { fecha: dia, servicio: "VIP Diamante" }), /Horarios libres/);
 });
 
-test("agenda un turno y no deja superponer otro", async () => {
+test("agenda una cita con su precio y no deja empalmar otra", async () => {
   const fecha = proximoLunes();
-  assert.match(await herramienta("agendar_turno", { fecha, hora: "11:00", servicio: "Color", nombre: "Ana" }), /confirmado/);
-  // Color dura 90 min: 11:30 y 12:00 quedan ocupados para otros.
   assert.match(
-    await herramienta("agendar_turno", { fecha, hora: "12:00", servicio: "Corte de pelo", nombre: "Beto" }, otro),
+    await herramienta("agendar_cita", { fecha, hora: "10:30", servicio: "Corte y barba", nombre: "Ana" }),
+    /confirmada.*Total: \$350 MXN/,
+  );
+  assert.match(
+    await herramienta("agendar_cita", { fecha, hora: "10:30", servicio: "Elige tu corte", nombre: "Beto" }, otro),
     /no está disponible/,
   );
-  assert.match(await herramienta("ver_mis_turnos", {}), /Color/);
-  assert.match(agendaDelDia(fecha), /11:00 · Color · Ana/);
+  assert.match(await herramienta("ver_mis_citas", {}), /Corte y barba/);
+  assert.match(agendaDelDia(fecha), /10:30 · Corte y barba · Ana/);
 });
 
-test("un cliente no puede cancelar turnos de otro", async () => {
+test("un cliente no puede cancelar citas de otro", async () => {
   const [turno] = memoria.turnosFuturosDe(ctx.telefono, fechaHoraLocal(new Date()));
-  assert.match(await herramienta("cancelar_turno", { turno_id: turno.id }, otro), /No encontré/);
+  assert.match(await herramienta("cancelar_cita", { cita_id: turno.id }, otro), /No encontré/);
 });
 
-test("cancela con anticipación, pero no a menos de 2 h del turno", async () => {
+test("cancela con anticipación, pero no a menos de 2 h de la cita", async () => {
   const [turno] = memoria.turnosFuturosDe(ctx.telefono, fechaHoraLocal(new Date()));
-  assert.match(await herramienta("cancelar_turno", { turno_id: turno.id }), /cancelado/);
+  assert.match(await herramienta("cancelar_cita", { cita_id: turno.id }), /cancelada/);
 
   const pronto = new Date(Date.now() + 60 * 60_000);
   const id = memoria.crearTurno({
     telefono: ctx.telefono,
     nombre: "Ana",
-    servicio: "Brushing",
+    servicio: "Elige tu corte",
     inicio: fechaHoraLocal(pronto),
     fin: fechaHoraLocal(new Date(pronto.getTime() + 30 * 60_000)),
   });
-  assert.match(await herramienta("cancelar_turno", { turno_id: id }), /menos de 2 h/);
+  assert.match(await herramienta("cancelar_cita", { cita_id: id }), /menos de 2 h/);
 });
 
 test("manda recordatorio una sola vez a los turnos de las próximas 24 h", async () => {
@@ -88,7 +91,7 @@ test("manda recordatorio una sola vez a los turnos de las próximas 24 h", async
   const id = memoria.crearTurno({
     telefono: otro.telefono,
     nombre: "Beto",
-    servicio: "Corte de pelo",
+    servicio: "Elige tu corte",
     inicio: fechaHoraLocal(manana),
     fin: fechaHoraLocal(new Date(manana.getTime() + 30 * 60_000)),
   });
@@ -106,7 +109,7 @@ test("el resumen cuenta la actividad y lo que el agente no pudo resolver", async
   await herramienta("derivar_a_humano", { motivo: "¿Hacen alisado?" });
   const r = resumen("semana");
   assert.match(r, /Mensajes: 2 de 2 clientes \(2 nuevos\)/);
-  assert.match(r, /Turnos agendados por el agente: 1 · cancelados: 1/);
+  assert.match(r, /Citas agendadas por el agente: 1 · canceladas: 1/);
   assert.match(r, /Pedidos: 1/);
   assert.match(r, /¿Hacen alisado\?/);
   assert.equal(memoria.obtenerModo(ctx.telefono), "humano");
@@ -124,4 +127,12 @@ test("las notas de la persona del negocio quedan en el historial", () => {
   memoria.agregarNota(otro.telefono, "[Persona del negocio le respondió al cliente: hola]");
   const { mensajes } = memoria.cargarConversacion(otro.telefono);
   assert.equal(mensajes.at(-1)?.content, "[Persona del negocio le respondió al cliente: hola]");
+});
+
+test("normaliza los celulares de México (521 → 52) para enviar y reconocer al dueño", () => {
+  assert.equal(numeroParaEnviar("5219991234567"), "529991234567");
+  assert.equal(numeroParaEnviar("+52 999 123 4567"), "529991234567");
+  assert.equal(numeroParaEnviar("5491112345678"), "5491112345678");
+  assert.ok(mismoNumero("5219991234567", "529991234567"));
+  assert.ok(!mismoNumero("5219991234567", ""));
 });
