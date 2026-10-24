@@ -1,8 +1,7 @@
-// Métricas para el dueño: resumen de actividad, agenda del día y aviso diario automático.
-import { agenda, config } from "./config.js";
-import { aMinutos, diaDeLaSemana, fechaHoraLocal, fechaLocal, sumarDias } from "./fechas.js";
+// Métricas para el dueño: resumen de actividad y agenda del día.
+import { agenda } from "./config.js";
+import { aMinutos, diaDeLaSemana, fechaLocal, sumarDias } from "./fechas.js";
 import * as memoria from "./memoria.js";
-import { avisarAlDueno } from "./whatsapp.js";
 
 export type Periodo = "hoy" | "semana" | "mes";
 const DIAS_PERIODO: Record<Periodo, number> = { hoy: 1, semana: 7, mes: 30 };
@@ -17,7 +16,7 @@ function contar(valores: string[]): [string, number][] {
 }
 
 function minutosAbiertos(fecha: string): number {
-  if (agenda.diasCerrado.includes(fecha)) return 0;
+  if (agenda.diasCerrado.includes(fecha) || memoria.diaCerrado(fecha)) return 0;
   return (agenda.horarios[diaDeLaSemana(fecha)] ?? []).reduce((s, [a, c]) => s + aMinutos(c) - aMinutos(a), 0);
 }
 
@@ -82,19 +81,4 @@ export function agendaDelDia(fecha: string): string {
     encabezado,
     ...turnos.map((t) => `${t.inicio.slice(11)} · ${t.servicio} · ${t.nombre} (#${t.id}, +${memoria.telefonoDeTurno(t.id)})`),
   ].join("\n");
-}
-
-/** Le manda al dueño el resumen del día y la agenda de mañana a la hora configurada. */
-export function iniciarResumenDiario() {
-  if (!/^\d{2}:\d{2}$/.test(config.resumenDiarioHora)) return;
-  let ultimoEnviado = "";
-  setInterval(async () => {
-    const ahora = fechaHoraLocal(new Date());
-    const [hoy, hora] = ahora.split("T");
-    if (hora !== config.resumenDiarioHora || ultimoEnviado === hoy) return;
-    ultimoEnviado = hoy;
-    await avisarAlDueno(`${resumen("hoy")}\n\n${agendaDelDia(sumarDias(hoy, 1))}`).catch((e) =>
-      console.error("Error enviando el resumen diario:", e),
-    );
-  }, 30_000);
 }

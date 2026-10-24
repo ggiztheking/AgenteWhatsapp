@@ -16,21 +16,40 @@ Cómo responder:
 - Para pedidos de productos: confirmá productos, cantidades y nombre antes de registrar el pedido.
 - Si el cliente pide hablar con una persona o está molesto, derivá a humano.
 - Cada mensaje del cliente trae la fecha y hora actual entre corchetes; usala para interpretar "mañana", "el sábado", etc.
+- Si al agendar te devuelven un link de seña, pasáselo al cliente tal cual y aclarale que la seña asegura el turno.
+- Si el cliente manda una foto, usala para entender lo que pide (por ejemplo, el corte o color que quiere). Los audios te llegan ya transcriptos.
+- Las notas entre corchetes que dicen "Persona del negocio" son mensajes que le mandó alguien del negocio mientras vos no atendías: tenelas en cuenta y no las contradigas.
 
 Información del negocio:
 <negocio>
 ${infoNegocio}
 </negocio>`;
 
+export type Imagen = { datos: Buffer; tipo: string };
+const TIPOS_IMAGEN = ["image/jpeg", "image/png", "image/gif", "image/webp"] as const;
+
 /** Procesa un mensaje del cliente y devuelve el texto a enviarle por WhatsApp. */
-export async function responder(telefono: string, nombreWhatsapp: string | null, texto: string): Promise<string> {
+export async function responder(
+  telefono: string,
+  nombreWhatsapp: string | null,
+  texto: string,
+  imagen?: Imagen,
+): Promise<string> {
   const conv = memoria.cargarConversacion(telefono);
   const mensajes = conv.mensajes;
   const ctx: Contexto = { telefono, nombreWhatsapp: nombreWhatsapp ?? conv.nombre };
 
+  const encabezado = `[${ahoraLegible()}${ctx.nombreWhatsapp ? ` · nombre en WhatsApp: ${ctx.nombreWhatsapp}` : ""}]`;
+  const tipoImagen = TIPOS_IMAGEN.find((t) => t === imagen?.tipo);
   mensajes.push({
     role: "user",
-    content: `[${ahoraLegible()}${ctx.nombreWhatsapp ? ` · nombre en WhatsApp: ${ctx.nombreWhatsapp}` : ""}]\n${texto}`,
+    content:
+      imagen && tipoImagen
+        ? [
+            { type: "image", source: { type: "base64", media_type: tipoImagen, data: imagen.datos.toString("base64") } },
+            { type: "text", text: `${encabezado}\n${texto || "(mandó esta imagen sin texto)"}` },
+          ]
+        : `${encabezado}\n${texto}`,
   });
 
   let respuesta = "";

@@ -1,5 +1,5 @@
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { mkdirSync, readdirSync, rmSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type Anthropic from "@anthropic-ai/sdk";
 import { config } from "./config.js";
@@ -47,7 +47,24 @@ db.exec(`
     fecha TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS eventos_fecha ON eventos (fecha);
+  CREATE TABLE IF NOT EXISTS dias_cerrados (
+    fecha TEXT PRIMARY KEY
+  );
+  CREATE TABLE IF NOT EXISTS avisos_pendientes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    texto TEXT NOT NULL
+  );
 `);
+
+// Columnas agregadas después de la primera versión: se suman a las bases que ya existen.
+const columnasTurnos = (db.prepare("PRAGMA table_info(turnos)").all() as { name: string }[]).map((c) => c.name);
+for (const [columna, tipo] of [
+  ["recordado", "INTEGER NOT NULL DEFAULT 0"],
+  ["evento_calendario", "TEXT"],
+  ["pago", "TEXT"],
+]) {
+  if (!columnasTurnos.includes(columna)) db.exec(`ALTER TABLE turnos ADD COLUMN ${columna} ${tipo}`);
+}
 
 type FilaConversacion = { nombre: string | null; mensajes: string; modo: Modo; actualizado: number };
 
@@ -87,6 +104,16 @@ export function cambiarModo(telefono: string, modo: Modo) {
   ).run(telefono, modo, Date.now());
 }
 
+/**
+ * Agrega al historial algo que pasó fuera del agente (mensajes con una persona del negocio),
+ * para que el agente tenga el contexto cuando vuelva a atender.
+ */
+export function agregarNota(telefono: string, texto: string) {
+  const conv = cargarConversacion(telefono);
+  conv.mensajes.push({ role: "user", content: texto });
+  guardarConversacion(telefono, conv.nombre, conv.mensajes);
+}
+
 /** Devuelve true la primera vez que ve un id; WhatsApp a veces reenvía el mismo webhook. */
 export function marcarProcesado(idMensaje: string): boolean {
   const r = db.prepare("INSERT OR IGNORE INTO mensajes_procesados (id) VALUES (?)").run(idMensaje);
@@ -113,11 +140,33 @@ export function turnosFuturosDe(telefono: string, desde: string): Turno[] {
     .all(telefono, desde) as Turno[];
 }
 
-export function crearTurno(t: Omit<Turno, "id"> & { telefono: string }): number {
+export function crearTurno(t: Omit<Turno, "id"> & { telefono: string; recordado?: boolean }): number {
   const r = db
-    .prepare("INSERT INTO turnos (telefono, nombre, servicio, inicio, fin) VALUES (?, ?, ?, ?, ?)")
-    .run(t.telefono, t.nombre, t.servicio, t.inicio, t.fin);
+    .prepare("INSERT INTO turnos (telefono, nombre, servicio, inicio, fin, recordado) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(t.telefono, t.nombre, t.servicio, t.inicio, t.fin, t.recordado ? 1 : 0);
   return Number(r.lastInsertRowid);
+}
+
+export function turnoPorId(id: number): (Turno & { telefono: string; pago: string | null; evento_calendario: string | null }) | undefined {
+  return db
+    .prepare(
+      "SELECT id, telefono, nombre, servicio, inicio, fin, pago, evento_calendario FROM turnos WHERE id = ? AND estado = 'confirmado'",
+    )
+    .get(id) as never;
+}
+
+export function actualizarTurno(id: number, campo: "evento_calendario" | "pago" | "recordado", valor: string | number) {
+  db.prepare(`UPDATE turnos SET ${campo} = ? WHERE id = ?`).run(valor, id);
+}
+
+/** Turnos confirmados entre dos momentos que todavía no recibieron recordatorio. */
+export function turnosParaRecordar(desde: string, hasta: string): (Turno & { telefono: string })[] {
+  return db
+    .prepare(
+      `SELECT id, telefono, nombre, servicio, inicio, fin FROM turnos
+       WHERE estado = 'confirmado' AND recordado = 0 AND inicio > ? AND inicio <= ? ORDER BY inicio`,
+    )
+    .all(desde, hasta) as never;
 }
 
 export function turnosEntre(desde: string, hasta: string): Turno[] {
@@ -180,4 +229,46 @@ export function clientesNuevosEntre(desde: string, hasta: string): number {
     )
     .get(desde, hasta) as { n: number };
   return Number(fila.n);
+}
+
+// --- Días cerrados que el dueño carga por WhatsApp (se suman a los de agenda.json) ---
+
+export function diaCerrado(fecha: string): boolean {
+  return !!db.prepare("SELECT 1 FROM dias_cerrados WHERE fecha = ?").get(fecha);
+}
+
+export function cerrarDia(fecha: string, cerrado: boolean) {
+  if (cerrado) db.prepare("INSERT OR IGNORE INTO dias_cerrados (fecha) VALUES (?)").run(fecha);
+  else db.prepare("DELETE FROM dias_cerrados WHERE fecha = ?").run(fecha);
+}
+
+// --- Avisos al dueño que no se pudieron entregar (fuera de la ventana de 24 h) ---
+
+export function guardarAvisoPendiente(texto: string) {
+  db.prepare("INSERT INTO avisos_pendientes (texto) VALUES (?)").run(texto);
+}
+
+export function hayAvisosPendientes(): boolean {
+  return !!db.prepare("SELECT 1 FROM avisos_pendientes LIMIT 1").get();
+}
+
+export function tomarAvisosPendientes(): string[] {
+  const filas = db.prepare("SELECT id, texto FROM avisos_pendientes ORDER BY id").all() as { id: number; texto: string }[];
+  if (filas.length) db.prepare("DELETE FROM avisos_pendientes WHERE id <= ?").run(filas.at(-1)!.id);
+  return filas.map((f) => f.texto);
+}
+
+// --- Respaldo ---
+
+/** Copia la base a data/respaldos/agente-AAAA-MM-DD.db y deja solo los últimos `conservar`. */
+export function respaldar(fecha: string, conservar = 7): string | null {
+  if (config.dbPath === ":memory:") return null;
+  const carpeta = join(dirname(config.dbPath), "respaldos");
+  mkdirSync(carpeta, { recursive: true });
+  const destino = join(carpeta, `agente-${fecha}.db`);
+  rmSync(destino, { force: true });
+  db.exec(`VACUUM INTO '${destino.replaceAll("'", "''")}'`);
+  const viejos = readdirSync(carpeta).filter((f) => /^agente-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort().slice(0, -conservar);
+  for (const f of viejos) rmSync(join(carpeta, f));
+  return destino;
 }

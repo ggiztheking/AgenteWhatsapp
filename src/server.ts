@@ -1,10 +1,20 @@
 import express from "express";
 import { config } from "./config.js";
-import { responder } from "./agente.js";
+import { responder, type Imagen } from "./agente.js";
 import { fechaLocal, sumarDias } from "./fechas.js";
-import { agendaDelDia, iniciarResumenDiario, resumen, type Periodo } from "./insights.js";
+import { cancelar } from "./herramientas.js";
+import { agendaDelDia, resumen, type Periodo } from "./insights.js";
+import { calendarioActivo, transcribir, transcripcionActiva, turnoDePagoAprobado } from "./integraciones.js";
 import * as memoria from "./memoria.js";
-import { avisarAlDueno, enviarTexto, firmaValida, marcarLeido } from "./whatsapp.js";
+import { iniciarTareas } from "./tareas.js";
+import {
+  avisarAlDueno,
+  descargarMedia,
+  entregarAvisosPendientes,
+  enviarTexto,
+  firmaValida,
+  marcarLeido,
+} from "./whatsapp.js";
 
 const app = express();
 app.use(express.json({ verify: (req, _res, buf) => ((req as express.Request & { cuerpoCrudo?: Buffer }).cuerpoCrudo = buf) }));
@@ -22,7 +32,14 @@ app.get("/webhook", (req, res) => {
   }
 });
 
-type MensajeEntrante = { id: string; from: string; type: string; text?: { body: string } };
+type MensajeEntrante = {
+  id: string;
+  from: string;
+  type: string;
+  text?: { body: string };
+  image?: { id: string; caption?: string };
+  audio?: { id: string };
+};
 type Contacto = { wa_id: string; profile?: { name?: string } };
 
 app.post("/webhook", (req, res) => {
@@ -47,6 +64,24 @@ app.post("/webhook", (req, res) => {
   }
 });
 
+// Mercado Pago avisa acá cuando se paga una seña. Se consulta el pago a la API antes de creer nada.
+app.post("/mercadopago", (req, res) => {
+  res.sendStatus(200);
+  const idPago = req.body?.data?.id ?? (req.query["data.id"] as string | undefined);
+  const tipo = req.body?.type ?? req.query["type"];
+  if (!config.mercadoPago.accessToken || tipo !== "payment" || !idPago) return;
+
+  turnoDePagoAprobado(String(idPago))
+    .then(async (id) => {
+      const turno = id && memoria.turnoPorId(id);
+      if (!turno || turno.pago === "pagado") return;
+      memoria.actualizarTurno(turno.id, "pago", "pagado");
+      await avisarAlDueno(`💳 Seña pagada del turno #${turno.id}: ${turno.nombre} — ${turno.servicio}, ${turno.inicio.replace("T", " ")}`);
+      await enviarTexto(turno.telefono, `¡Recibimos tu seña, ${turno.nombre}! Tu turno del ${turno.inicio.replace("T", " a las ")} quedó asegurado ✅`);
+    })
+    .catch((e) => console.error("Error procesando el aviso de Mercado Pago:", e));
+});
+
 // Los mensajes de un mismo cliente se procesan de a uno, en orden.
 const colas = new Map<string, Promise<void>>();
 function encolar(telefono: string, tarea: () => Promise<void>) {
@@ -59,10 +94,32 @@ function encolar(telefono: string, tarea: () => Promise<void>) {
   colas.set(telefono, siguiente);
 }
 
-async function procesar(m: MensajeEntrante, nombre: string | null) {
-  const texto = m.type === "text" ? m.text?.body ?? "" : "";
+/** Saca el texto (y la imagen, si hay) de un mensaje. Los audios se transcriben si está configurado. */
+async function leerMensaje(m: MensajeEntrante): Promise<{ texto: string; imagen?: Imagen }> {
+  if (m.type === "text") return { texto: m.text?.body ?? "" };
+  if (!config.whatsapp.token) return { texto: "" };
+  try {
+    if (m.type === "image" && m.image) {
+      return { texto: m.image.caption ?? "", imagen: await descargarMedia(m.image.id) };
+    }
+    if (m.type === "audio" && m.audio && transcripcionActiva()) {
+      const { datos, tipo } = await descargarMedia(m.audio.id);
+      return { texto: `(audio transcripto) ${await transcribir(datos, tipo)}` };
+    }
+  } catch (e) {
+    console.error(`Error leyendo ${m.type} de ${m.from}:`, e);
+  }
+  return { texto: "" };
+}
 
-  if (config.duenoTelefono && m.from === config.duenoTelefono && texto.startsWith("/")) {
+async function procesar(m: MensajeEntrante, nombre: string | null) {
+  const esDueno = !!config.duenoTelefono && m.from === config.duenoTelefono;
+  // Cualquier mensaje del dueño abre la ventana de 24 h: se le entrega lo que haya quedado guardado.
+  if (esDueno) await entregarAvisosPendientes();
+
+  const { texto, imagen } = await leerMensaje(m);
+
+  if (esDueno && texto.startsWith("/")) {
     await comandoDelDueno(texto);
     return;
   }
@@ -70,69 +127,100 @@ async function procesar(m: MensajeEntrante, nombre: string | null) {
   memoria.registrarEvento("mensaje", m.from);
 
   if (memoria.obtenerModo(m.from) === "humano") {
-    await avisarAlDueno(`💬 ${nombre ?? m.from} (+${m.from}): ${texto || `[${m.type}]`}`);
+    const contenido = texto || `[${m.type}]`;
+    memoria.agregarNota(m.from, `[Mientras lo atendía una persona del negocio, el cliente escribió: ${contenido}]`);
+    await avisarAlDueno(`💬 ${nombre ?? m.from} (+${m.from}): ${contenido}`);
     return;
   }
 
-  if (!texto) {
-    await enviarTexto(m.from, "Por ahora solo puedo leer mensajes de texto 🙏 ¿Me lo escribís?");
+  if (!texto && !imagen) {
+    await enviarTexto(
+      m.from,
+      m.type === "audio"
+        ? "Perdón, no puedo escuchar audios 🙏 ¿Me lo escribís?"
+        : "Por ahora solo puedo leer texto y fotos 🙏 ¿Me lo escribís?",
+    );
     return;
   }
 
-  console.log(`📩 ${nombre ?? ""} (+${m.from}): ${texto}`);
+  console.log(`📩 ${nombre ?? ""} (+${m.from}): ${texto}${imagen ? " [imagen]" : ""}`);
   await marcarLeido(m.id).catch(() => {});
-  const respuesta = await responder(m.from, nombre, texto);
+  const respuesta = await responder(m.from, nombre, texto, imagen);
   console.log(`📤 → +${m.from}: ${respuesta}`);
   await enviarTexto(m.from, respuesta);
 }
 
+const AYUDA =
+  "Comandos:\n" +
+  "/responder <número> <mensaje>\n/reactivar <número>\n" +
+  "/resumen [hoy|semana|mes]\n/agenda [hoy|mañana|AAAA-MM-DD]\n" +
+  "/cancelar <n° de turno> [motivo]\n/cerrar <mañana|AAAA-MM-DD>\n/abrir <mañana|AAAA-MM-DD>";
+
+/** Interpreta "hoy", "mañana" o AAAA-MM-DD. */
+function leerDia(texto: string | undefined): string | null {
+  const hoy = fechaLocal(new Date());
+  if (!texto || texto === "hoy") return hoy;
+  if (texto === "mañana" || texto === "manana") return sumarDias(hoy, 1);
+  return /^\d{4}-\d{2}-\d{2}$/.test(texto) ? texto : null;
+}
+
 async function comandoDelDueno(texto: string) {
-  const [comando, telefono, ...resto] = texto.trim().split(/\s+/);
-  if (comando === "/responder" && telefono && resto.length) {
-    await enviarTexto(telefono, resto.join(" "));
-  } else if (comando === "/reactivar" && telefono) {
-    memoria.cambiarModo(telefono, "agente");
-    await avisarAlDueno(`🤖 El agente vuelve a atender a +${telefono}.`);
+  const [comando, argumento, ...resto] = texto.trim().split(/\s+/);
+
+  if (comando === "/responder" && argumento && resto.length) {
+    const mensaje = resto.join(" ");
+    const r = await enviarTexto(argumento, mensaje);
+    if (r.ok) memoria.agregarNota(argumento, `[Persona del negocio le respondió al cliente: ${mensaje}]`);
+    else await avisarAlDueno(`No se pudo enviar a +${argumento} (¿pasaron más de 24 h desde su último mensaje?).`);
+  } else if (comando === "/reactivar" && argumento) {
+    memoria.cambiarModo(argumento, "agente");
+    await avisarAlDueno(`🤖 El agente vuelve a atender a +${argumento}.`);
   } else if (comando === "/resumen") {
-    const periodo = (["hoy", "semana", "mes"].includes(telefono) ? telefono : "hoy") as Periodo;
+    const periodo = (["hoy", "semana", "mes"].includes(argumento) ? argumento : "hoy") as Periodo;
     await avisarAlDueno(resumen(periodo));
   } else if (comando === "/agenda") {
-    // Acá el segundo argumento es el día: hoy, mañana o AAAA-MM-DD.
-    const hoy = fechaLocal(new Date());
-    const dia = /^\d{4}-\d{2}-\d{2}$/.test(telefono ?? "")
-      ? telefono
-      : ["mañana", "manana"].includes(telefono ?? "")
-        ? sumarDias(hoy, 1)
-        : hoy;
-    await avisarAlDueno(agendaDelDia(dia));
-  } else if (comando === "/cancelar" && Number(telefono)) {
-    // Acá el segundo argumento es el número de turno.
-    const id = Number(telefono);
+    const dia = leerDia(argumento);
+    await avisarAlDueno(dia ? agendaDelDia(dia) : AYUDA);
+  } else if (comando === "/cancelar" && Number(argumento)) {
+    const id = Number(argumento);
     const cliente = memoria.telefonoDeTurno(id);
-    const turno = cliente && memoria.cancelarTurno(id, cliente);
+    const turno = cliente && (await cancelar(id, cliente));
     if (!cliente || !turno) {
       await avisarAlDueno(`No encontré un turno confirmado #${id}.`);
       return;
     }
-    memoria.registrarEvento("cancelacion", cliente, turno.servicio);
     const motivo = resto.length ? ` Motivo: ${resto.join(" ")}.` : "";
-    await enviarTexto(
-      cliente,
-      `Hola ${turno.nombre}, te escribimos porque tuvimos que cancelar tu turno de ${turno.servicio} del ${turno.inicio.replace("T", " a las ")}.${motivo} ¿Querés que te busquemos otro horario?`,
-    );
-    await avisarAlDueno(`❌ Turno #${id} cancelado y avisado a +${cliente}.`);
-  } else {
+    const aviso = `Hola ${turno.nombre}, te escribimos porque tuvimos que cancelar tu turno de ${turno.servicio} del ${turno.inicio.replace("T", " a las ")}.${motivo} ¿Querés que te busquemos otro horario?`;
+    const r = await enviarTexto(cliente, aviso);
+    if (r.ok) memoria.agregarNota(cliente, `[Persona del negocio le escribió al cliente: ${aviso}]`);
     await avisarAlDueno(
-      "Comandos:\n/responder <número> <mensaje>\n/reactivar <número>\n" +
-        "/resumen [hoy|semana|mes]\n/agenda [hoy|mañana|AAAA-MM-DD]\n/cancelar <n° de turno> [motivo]",
+      r.ok
+        ? `❌ Turno #${id} cancelado y avisado a +${cliente}.`
+        : `❌ Turno #${id} cancelado, pero no le pude avisar a +${cliente} (pasaron más de 24 h desde su último mensaje). Llamalo.`,
     );
+  } else if ((comando === "/cerrar" || comando === "/abrir") && leerDia(argumento)) {
+    const dia = leerDia(argumento)!;
+    memoria.cerrarDia(dia, comando === "/cerrar");
+    const turnos = memoria.turnosDelDia(dia);
+    await avisarAlDueno(
+      comando === "/abrir"
+        ? `✅ ${dia} vuelve a estar abierto para turnos (según el horario de agenda.json).`
+        : `🔒 ${dia} cerrado: el agente no va a dar turnos ese día.` +
+            (turnos.length ? `\nOjo, ya hay ${turnos.length} turno(s) ese día; cancelalos con /cancelar:\n${agendaDelDia(dia)}` : ""),
+    );
+  } else {
+    await avisarAlDueno(AYUDA);
   }
 }
 
 if (!config.whatsapp.appSecret) {
   console.warn("⚠️  WHATSAPP_APP_SECRET vacío: el webhook acepta pedidos sin verificar la firma de Meta.");
 }
-iniciarResumenDiario();
+console.log(
+  `Integraciones: Google Calendar ${calendarioActivo() ? "✅" : "—"} · Mercado Pago ${config.mercadoPago.accessToken ? "✅" : "—"}` +
+    ` · Audios ${transcripcionActiva() ? "✅" : "—"} · Recordatorios ${config.whatsapp.plantillaRecordatorio ? "✅" : "—"}`,
+);
+iniciarTareas();
 
 app.listen(config.port, () => {
   console.log(`Escuchando en http://localhost:${config.port} — webhook en /webhook`);

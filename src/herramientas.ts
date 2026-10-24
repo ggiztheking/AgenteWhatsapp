@@ -2,6 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { agenda } from "./config.js";
 import { aHora, aMinutos, diaDeLaSemana, fechaHoraLocal, fechaLocal } from "./fechas.js";
+import { agregarAlCalendario, linkDeSena, quitarDelCalendario } from "./integraciones.js";
 import * as memoria from "./memoria.js";
 import { avisarAlDueno } from "./whatsapp.js";
 
@@ -22,7 +23,7 @@ const servicio = z.enum(Object.keys(agenda.servicios) as [string, ...string[]]).
 
 function horariosLibres(dia: string, nombreServicio: string): string[] {
   const duracion = agenda.servicios[nombreServicio];
-  if (agenda.diasCerrado.includes(dia)) return [];
+  if (agenda.diasCerrado.includes(dia) || memoria.diaCerrado(dia)) return [];
 
   const ocupados = memoria.turnosDelDia(dia).map((t) => [aMinutos(t.inicio.slice(11)), aMinutos(t.fin.slice(11))]);
   const ahora = new Date();
@@ -38,6 +39,16 @@ function horariosLibres(dia: string, nombreServicio: string): string[] {
     }
   }
   return libres;
+}
+
+/** Cancela un turno, lo saca del calendario y lo registra. Lo usan el agente y el comando /cancelar del dueño. */
+export async function cancelar(id: number, telefono: string): Promise<memoria.Turno | undefined> {
+  const datos = memoria.turnoPorId(id);
+  const turno = memoria.cancelarTurno(id, telefono);
+  if (!turno) return undefined;
+  memoria.registrarEvento("cancelacion", telefono, turno.servicio);
+  await quitarDelCalendario(datos?.evento_calendario ?? null);
+  return turno;
 }
 
 const herramientas = [
@@ -72,10 +83,22 @@ const herramientas = [
       }
       const inicio = `${fecha}T${hora}`;
       const fin = `${fecha}T${aHora(aMinutos(hora) + agenda.servicios[servicio])}`;
-      const id = memoria.crearTurno({ telefono: ctx.telefono, nombre, servicio, inicio, fin });
+      // Si el turno es dentro de las próximas 24 h no hace falta mandarle recordatorio.
+      const recordado = inicio <= fechaHoraLocal(new Date(Date.now() + 24 * 3600_000));
+      const id = memoria.crearTurno({ telefono: ctx.telefono, nombre, servicio, inicio, fin, recordado });
       memoria.registrarEvento("turno", ctx.telefono, servicio);
+
+      const turno = { id, nombre, servicio, inicio, fin };
+      const evento = await agregarAlCalendario({ ...turno, telefono: ctx.telefono });
+      if (evento) memoria.actualizarTurno(id, "evento_calendario", evento);
+      const sena = await linkDeSena(turno);
+      if (sena) memoria.actualizarTurno(id, "pago", "pendiente");
+
       await avisarAlDueno(`📅 Nuevo turno #${id}: ${nombre} (+${ctx.telefono}) — ${servicio}, ${diaDeLaSemana(fecha)} ${fecha} ${hora}`);
-      return `Turno #${id} confirmado: ${servicio} el ${diaDeLaSemana(fecha)} ${fecha} a las ${hora} a nombre de ${nombre}.`;
+      const confirmado = `Turno #${id} confirmado: ${servicio} el ${diaDeLaSemana(fecha)} ${fecha} a las ${hora} a nombre de ${nombre}.`;
+      return sena
+        ? `${confirmado} Pasale al cliente este link para pagar la seña de $${sena.monto.toLocaleString("es-AR")} por Mercado Pago (copialo tal cual): ${sena.link}`
+        : confirmado;
     },
   }),
 
@@ -105,9 +128,8 @@ const herramientas = [
         return `Faltan menos de ${horas} h para el turno y la política no permite cancelarlo por acá. Ofrecé derivar a una persona.`;
       }
 
-      const turno = memoria.cancelarTurno(turno_id, ctx.telefono);
+      const turno = await cancelar(turno_id, ctx.telefono);
       if (!turno) return "No encontré ese turno entre los turnos de este cliente.";
-      memoria.registrarEvento("cancelacion", ctx.telefono, turno.servicio);
       await avisarAlDueno(`❌ Turno #${turno.id} cancelado: ${turno.nombre} — ${turno.servicio}, ${turno.inicio.replace("T", " ")}`);
       return `Turno #${turno.id} cancelado.`;
     },
