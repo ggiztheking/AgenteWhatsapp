@@ -14,6 +14,8 @@ export const config = {
     // Plantillas aprobadas en Meta (ver README). Vacías = desactivadas.
     plantillaAviso: process.env.WHATSAPP_PLANTILLA_AVISO ?? "",
     plantillaRecordatorio: process.env.WHATSAPP_PLANTILLA_RECORDATORIO ?? "",
+    plantillaSeguimiento: process.env.WHATSAPP_PLANTILLA_SEGUIMIENTO ?? "",
+    plantillaLugarLibre: process.env.WHATSAPP_PLANTILLA_LUGAR_LIBRE ?? "",
     idiomaPlantillas: process.env.WHATSAPP_IDIOMA_PLANTILLAS || "es_MX",
   },
   // URL pública del servidor (ej. https://mi-agente.up.railway.app), para los webhooks de Mercado Pago.

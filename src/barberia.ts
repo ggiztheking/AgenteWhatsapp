@@ -89,6 +89,10 @@ export async function citas(codigos: string[]): Promise<Cita[]> {
   return (await llamar<Cita[]>("/mis-citas", { codigos })).map((c) => ({ ...c, precio: Number(c.precio) }));
 }
 
+export async function reprogramar(codigo: string, fecha: string, hora: string): Promise<void> {
+  await llamar("/reprogramar", { codigo, fecha, hora });
+}
+
 export async function cancelar(codigo: string): Promise<void> {
   await llamar("/cancelar", { codigo });
 }

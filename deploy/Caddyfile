@@ -1,0 +1,3 @@
+{$DOMINIO} {
+	reverse_proxy agente:3000
+}

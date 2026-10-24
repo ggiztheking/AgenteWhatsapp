@@ -1,6 +1,23 @@
 # Agente de WhatsApp · Estilo Internacional
 
-Un agente con Claude que atiende el WhatsApp de la barbería: responde dudas, agenda y cancela citas **en la misma agenda de la página web** (barberia-saas), entiende fotos y audios, puede cobrar un anticipo y pasa la conversación a una persona cuando hace falta. Al dueño le manda avisos y métricas.
+Un agente con Claude que atiende el WhatsApp de la barbería: responde dudas, agenda, confirma, cambia y cancela citas **en la misma agenda de la página web** (barberia-saas), rescata los lugares que se liberan con una lista de espera, entiende fotos y audios, puede cobrar un anticipo y pasa la conversación a una persona cuando hace falta. Al dueño le manda avisos y métricas.
+
+## Contra Sofía IA (AgendaPro)
+
+Comparado con lo que AgendaPro anuncia de Sofía IA en su página y su blog.
+
+| | Sofía IA | Este agente |
+|---|---|---|
+| Recordatorio por WhatsApp desde tu número | ✅ | ✅ con botones *Confirmo / Cambiar / Cancelar* |
+| Insiste si el cliente no contesta | ✅ | ✅ una vez, 4 h después, nunca de noche |
+| Recordatorio a la hora en que el cliente suele contestar | ✅ | ✅ |
+| Cambiar de horario por chat | ✅ | ✅ misma cita, mismo barbero, en la agenda de tu página |
+| Lugar liberado al cancelar | Lo reagenda | Avisa al momento a **toda la lista de espera** de ese día; el primero que contesta se lo queda |
+| Agendar desde cero por chat (paquete, extras, barbero) | Con Julia, otra IA de AgendaPro | ✅ el mismo agente, y ofrece un extra antes de confirmar |
+| Entiende fotos del corte y notas de voz | No lo anuncia | ✅ |
+| Métricas por WhatsApp para el dueño | No lo anuncia | ✅ `/resumen`: confirmaciones, citas rescatadas y **cuánto dinero se recuperó** |
+| Dónde viven tus datos y tu agenda | En AgendaPro | En tu propia agenda (barberia-saas) y tu servidor |
+| Costo | Suscripción de AgendaPro | Solo lo que uses de Claude y WhatsApp |
 
 ```
 Cliente ──► WhatsApp (Cloud API) ──► Agente (Claude) ──┬─► Agenda      (barberia-saas: barberos, horarios, citas)
@@ -16,13 +33,14 @@ Cliente ──► WhatsApp (Cloud API) ──► Agente (Claude) ──┬─►
 | `negocio.md` | **Lo que sabe el agente**: paquetes, extras, precios, horario, dirección y políticas. |
 | `agenda.json` | Agenda local de respaldo (solo se usa si no configuras `BARBERIA_URL`). |
 | `src/agente.ts` | El agente: instrucciones, llamada a Claude y ciclo de herramientas. |
-| `src/herramientas.ts` | Acciones: `consultar_disponibilidad`, `agendar_cita`, `ver_mis_citas`, `cancelar_cita`, `tomar_pedido`, `derivar_a_humano`. |
+| `src/herramientas.ts` | Acciones: `consultar_disponibilidad`, `agendar_cita`, `ver_mis_citas`, `confirmar_cita`, `reprogramar_cita`, `cancelar_cita`, `apuntar_lista_espera`, `tomar_pedido`, `derivar_a_humano`. |
 | `src/barberia.ts` | Conexión con la agenda de barberia-saas. |
 | `src/memoria.ts` | Base SQLite: conversaciones, copia de las citas, pedidos, métricas y respaldos. |
 | `src/insights.ts` | Métricas para el dueño: `/resumen` y `/agenda`. |
 | `src/tareas.ts` | Lo que corre solo: recordatorios, resumen diario y respaldo. |
 | `src/integraciones.ts` | Google Calendar, Mercado Pago y transcripción de audios (opcionales). |
 | `src/whatsapp.ts` | Envío de mensajes y plantillas, descarga de fotos y audios. |
+| `docker-compose.yml`, `deploy/` | Servidor propio con HTTPS (Akamai Cloud / Linode). |
 | `src/server.ts` | Webhooks de WhatsApp y Mercado Pago, y comandos del dueño. |
 
 ## 1. Instalar y probar
@@ -69,9 +87,16 @@ WhatsApp solo deja enviar mensajes libres en las 24 h después del último mensa
 | Variable | Texto sugerido |
 |---|---|
 | `WHATSAPP_PLANTILLA_AVISO` | `Tienes novedades del asistente de WhatsApp de Estilo Internacional. Responde este mensaje para verlas.` |
-| `WHATSAPP_PLANTILLA_RECORDATORIO` | `Hola {{1}}, te recordamos tu cita de {{2}} el {{3}} en Estilo Internacional. Si no puedes venir, avísanos por aquí.` |
+| `WHATSAPP_PLANTILLA_RECORDATORIO` | `Hola {{1}}, te recordamos tu cita de {{2}} el {{3}} en Estilo Internacional. ¿Nos confirmas?` con 3 botones de respuesta rápida: `Confirmo`, `Cambiar horario`, `Cancelar` |
+| `WHATSAPP_PLANTILLA_SEGUIMIENTO` | `Hola {{1}}, seguimos esperando tu confirmación para tu cita de {{2}} el {{3}}. ¿Vienes?` con los mismos botones |
+| `WHATSAPP_PLANTILLA_LUGAR_LIBRE` | `¡Hola {{1}}! Se liberó un lugar el {{2}} en Estilo Internacional: {{3}}. ¿Te lo apartamos? Responde este mensaje.` |
 
-Con la de aviso, si pasaron más de 24 h desde tu último mensaje, los avisos se guardan y te llegan todos juntos en cuanto respondes. Con la de recordatorio, cada cliente recibe un aviso un día antes de su cita (bajan mucho las faltas).
+- **Aviso:** si pasaron más de 24 h desde tu último mensaje, los avisos se guardan y te llegan todos juntos en cuanto respondes.
+- **Recordatorio:** cada cliente recibe un recordatorio un día antes, entre 9 a. m. y 9 p. m., a la hora en que suele contestar. Cuando toca un botón, el agente confirma, le ofrece otros horarios o cancela, según lo que elija.
+- **Seguimiento:** si no contesta en 4 h, se le insiste una sola vez.
+- **Lugar libre:** cuando alguien cancela o cambia su cita, se les avisa a los de la lista de espera de ese día.
+
+El seguimiento y el aviso de lugar libre van por texto normal si el cliente escribió en las últimas 24 h; la plantilla solo hace falta para los demás.
 
 ## 4. Tú, el dueño
 
@@ -79,8 +104,8 @@ Pon tu número en `DUENO_TELEFONO` (52 + 10 dígitos). Te llegan avisos de citas
 
 - `/responder 5219991234567 Hola, soy Carlos, te atiendo yo` le contesta al cliente.
 - `/reactivar 5219991234567` le regresa la conversación al agente, que ve lo que platicaron mientras tanto.
-- `/resumen` (o `/resumen semana`, `/resumen mes`) te manda las métricas: mensajes, clientes nuevos, citas agendadas y canceladas, cuántos buscaron cita y no había lugar, venta estimada, paquetes, barberos y horarios más pedidos, y las preguntas que el agente no supo contestar.
-- `/agenda` (o `/agenda mañana`, `/agenda 2026-10-30`) lista las citas que se agendaron por WhatsApp ese día. La agenda completa sigue en tu panel.
+- `/resumen` (o `/resumen semana`, `/resumen mes`) te manda las métricas: mensajes, clientes nuevos, citas agendadas, confirmadas, cambiadas y canceladas, lista de espera y citas rescatadas (con el dinero recuperado), cuántos buscaron cita y no había lugar, venta estimada, paquetes, barberos y horarios más pedidos, y las preguntas que el agente no supo contestar.
+- `/agenda` (o `/agenda mañana`, `/agenda 2026-10-30`) lista las citas que se agendaron por WhatsApp ese día, con ✅ si el cliente ya confirmó y ⏳ si no. La agenda completa sigue en tu panel.
 - `/cancelar 12 me enfermé` cancela la cita #12 (también en la agenda de la página) y le avisa al cliente.
 - `/cerrar 2026-11-02` (o `/cerrar mañana`) hace que el agente no dé citas ese día; `/abrir 2026-11-02` lo vuelve a abrir. Para la página web, bloquea el día también en tu panel.
 
@@ -104,7 +129,11 @@ Cada una se activa al llenar sus variables en `.env`. Al arrancar, el servidor m
 
 ## 7. Publicarlo
 
-Sirve cualquier hosting de Node con **disco persistente** para la carpeta `data/`. Como barberia-saas ya está en Railway, lo más fácil es crear ahí otro servicio desde este repositorio:
+Sirve cualquier hosting de Node con **disco persistente** para la carpeta `data/`.
+
+**En Akamai Cloud (Linode)**, en un servidor propio con HTTPS incluido y sin comprar dominio: sigue [`deploy/akamai.md`](deploy/akamai.md). Son unos minutos y un solo comando (`bash deploy/instalar.sh`).
+
+**En Railway**, junto a barberia-saas:
 
 1. En tu proyecto de Railway: *New → GitHub Repo →* este repositorio. Railway detecta el `Dockerfile`.
 2. Agrega un **Volume** montado en `/app/data`. Sin él se pierden las conversaciones y métricas en cada deploy.

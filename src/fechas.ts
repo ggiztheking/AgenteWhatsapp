@@ -36,3 +36,11 @@ export function sumarDias(fecha: string, dias: number): string {
   const [a, m, d] = fecha.split("-").map(Number);
   return fechaLocal(new Date(a, m - 1, d + dias));
 }
+
+/** "2026-10-24T15:30" (hora local) → Date. */
+export function aFecha(fechaHora: string): Date {
+  const [f, h = "00:00"] = fechaHora.split("T");
+  const [a, m, d] = f.split("-").map(Number);
+  const [hh, mm] = h.split(":").map(Number);
+  return new Date(a, m - 1, d, hh, mm);
+}

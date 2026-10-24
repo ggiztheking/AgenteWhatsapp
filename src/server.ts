@@ -41,6 +41,9 @@ type MensajeEntrante = {
   text?: { body: string };
   image?: { id: string; caption?: string };
   audio?: { id: string };
+  // Botones de respuesta rápida de una plantilla ("Confirmo") y respuestas a mensajes interactivos.
+  button?: { text?: string; payload?: string };
+  interactive?: { button_reply?: { title?: string }; list_reply?: { title?: string } };
 };
 type Contacto = { wa_id: string; profile?: { name?: string } };
 
@@ -99,6 +102,10 @@ function encolar(telefono: string, tarea: () => Promise<void>) {
 /** Saca el texto (y la imagen, si hay) de un mensaje. Los audios se transcriben si está configurado. */
 async function leerMensaje(m: MensajeEntrante): Promise<{ texto: string; imagen?: Imagen }> {
   if (m.type === "text") return { texto: m.text?.body ?? "" };
+  if (m.type === "button") return { texto: m.button?.text ?? m.button?.payload ?? "" };
+  if (m.type === "interactive") {
+    return { texto: m.interactive?.button_reply?.title ?? m.interactive?.list_reply?.title ?? "" };
+  }
   if (!config.whatsapp.token) return { texto: "" };
   try {
     if (m.type === "image" && m.image) {

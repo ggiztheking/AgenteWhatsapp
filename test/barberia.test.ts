@@ -136,6 +136,18 @@ test("si el cliente cancela desde la página, ya no aparece en sus citas", opcio
   assert.match(mias, /Corte y barba \+ Cejas/);
 });
 
+test("cambiar de horario mueve la misma cita en la agenda (mismo código y barbero)", opciones, async () => {
+  const [turno] = memoria.turnosFuturosDe(ctx.telefono, `${fecha}T00:00`);
+  const nueva = (await barberia.info()).horas[3];
+  assert.match(await herramienta("reprogramar_cita", { cita_id: turno.id, fecha, hora: nueva }), new RegExp(`cambiada.*${nueva}`));
+  const [cita] = await barberia.citas([turno.codigo!]);
+  assert.equal(cita.hora, nueva);
+  assert.equal(cita.barbero, barberos[0]);
+  assert.equal(cita.estado, "pendiente");
+  // De regreso a la hora original, para las pruebas que siguen.
+  assert.match(await herramienta("reprogramar_cita", { cita_id: turno.id, fecha, hora: primera }), /cambiada/);
+});
+
 test("cancelar por WhatsApp libera el espacio en la agenda", opciones, async () => {
   const [turno] = memoria.turnosFuturosDe(ctx.telefono, `${fecha}T00:00`);
   assert.match(await herramienta("cancelar_cita", { cita_id: turno.id }), /cancelada/);

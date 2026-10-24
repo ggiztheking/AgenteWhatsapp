@@ -65,7 +65,17 @@ test("consulta, agenda con herramientas y responde al cliente", async () => {
   assert.match(primero.system, /Estilo Internacional/);
   assert.deepEqual(
     primero.tools.map((t) => t.name).sort(),
-    ["agendar_cita", "cancelar_cita", "consultar_disponibilidad", "derivar_a_humano", "tomar_pedido", "ver_mis_citas"],
+    [
+      "agendar_cita",
+      "apuntar_lista_espera",
+      "cancelar_cita",
+      "confirmar_cita",
+      "consultar_disponibilidad",
+      "derivar_a_humano",
+      "reprogramar_cita",
+      "tomar_pedido",
+      "ver_mis_citas",
+    ],
   );
   assert.match(JSON.stringify(primero.messages[0].content), /nombre en WhatsApp: Ana/);
   // La segunda vuelta lleva el resultado real de la herramienta.

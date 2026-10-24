@@ -5,7 +5,7 @@ import { agenda, config } from "./config.js";
 import { aHora, aMinutos, diaDeLaSemana, fechaHoraLocal, fechaLocal } from "./fechas.js";
 import { agregarAlCalendario, linkDeSena, quitarDelCalendario } from "./integraciones.js";
 import * as memoria from "./memoria.js";
-import { avisarAlDueno } from "./whatsapp.js";
+import { avisarAlDueno, escribirAlCliente } from "./whatsapp.js";
 
 /** Datos del cliente que la herramienta recibe del sistema, no del modelo. */
 export type Contexto = { telefono: string; nombreWhatsapp: string | null };
@@ -30,11 +30,14 @@ const nombre = z.string().describe("Nombre del cliente");
 
 const servicioLocal = z.enum(Object.keys(agenda.servicios) as [string, ...string[]]).describe("Servicio pedido");
 
-function horariosLibresLocal(dia: string, nombreServicio: string): string[] {
-  const duracion = agenda.servicios[nombreServicio];
+function horariosLibresLocal(dia: string, nombreServicio: string, sinContar?: number): string[] {
+  const duracion = agenda.servicios[nombreServicio] ?? Math.min(...Object.values(agenda.servicios));
   if (agenda.diasCerrado.includes(dia) || memoria.diaCerrado(dia)) return [];
 
-  const ocupados = memoria.turnosDelDia(dia).map((t) => [aMinutos(t.inicio.slice(11)), aMinutos(t.fin.slice(11))]);
+  const ocupados = memoria
+    .turnosDelDia(dia)
+    .filter((t) => t.id !== sinContar)
+    .map((t) => [aMinutos(t.inicio.slice(11)), aMinutos(t.fin.slice(11))]);
   const ahora = new Date();
   const minimo = dia === fechaLocal(ahora) ? ahora.getHours() * 60 + ahora.getMinutes() : -1;
 
@@ -50,16 +53,59 @@ function horariosLibresLocal(dia: string, nombreServicio: string): string[] {
   return libres;
 }
 
+/** Horarios libres de un día en la agenda que esté activa (para la lista de espera). */
+async function lugaresLibres(dia: string, barbero: string | null): Promise<string[]> {
+  if (memoria.diaCerrado(dia)) return [];
+  if (barberia.barberiaActiva()) return (await barberia.horariosLibres(dia, barbero ?? undefined)).map((l) => l.hora);
+  const masCorto = Object.entries(agenda.servicios).sort((a, b) => a[1] - b[1])[0][0];
+  return horariosLibresLocal(dia, masCorto);
+}
+
+/**
+ * Se liberó lugar en un día (cancelación o cambio): se les avisa a todos los de la lista de espera de ese día
+ * que tienen un horario libre que les sirve. El primero que conteste se lo queda.
+ */
+export async function ofrecerLugarLiberado(dia: string): Promise<void> {
+  if (dia < fechaLocal(new Date())) return;
+  let avisados = 0;
+  for (const e of memoria.enEsperaPara(dia)) {
+    try {
+      const libres = (await lugaresLibres(dia, e.barbero)).slice(0, 3);
+      if (!libres.length) continue;
+      const nombreCliente = e.nombre ? ` ${e.nombre.split(" ")[0]}` : "";
+      const conBarbero = e.barbero ? ` con ${e.barbero}` : "";
+      const texto =
+        `¡Hola${nombreCliente}! Se liberó un lugar el ${diaDeLaSemana(dia)} ${dia}${conBarbero}: ${libres.join(", ")}. ` +
+        "¿Te lo aparto? Respóndeme y te lo agendo antes de que lo gane alguien más 💈";
+      const parametros = [e.nombre?.split(" ")[0] ?? "", `${diaDeLaSemana(dia)} ${dia}`, libres.join(", ")];
+      if (!(await escribirAlCliente(e.telefono, texto, config.whatsapp.plantillaLugarLibre, parametros))) continue;
+      memoria.marcarAvisado(e.id);
+      memoria.registrarEvento("lugar_ofrecido", e.telefono, dia);
+      memoria.agregarNota(
+        e.telefono,
+        `[Aviso automático de la lista de espera: se le ofreció un lugar el ${dia}${conBarbero} (${libres.join(", ")}). ` +
+          "Si contesta que sí, consulta la disponibilidad y agéndalo.]",
+      );
+      avisados++;
+    } catch (err) {
+      console.error(`Error avisando a la lista de espera (+${e.telefono}):`, err);
+    }
+  }
+  if (avisados) await avisarAlDueno(`♻️ Se liberó lugar el ${diaDeLaSemana(dia)} ${dia}: le avisé a ${avisados} cliente(s) de la lista de espera.`);
+}
+
 // --- Lo que pasa después de reservar, en los dos modos ---
 
 async function registrarReserva(
   ctx: Contexto,
   r: { nombre: string; servicio: string; inicio: string; fin: string; precio?: number; barbero?: string; codigo?: string },
 ): Promise<string> {
-  // Si la cita es dentro de las próximas 24 h no hace falta mandarle recordatorio.
-  const recordado = r.inicio <= fechaHoraLocal(new Date(Date.now() + 24 * 3600_000));
+  // Si la cita es dentro de las próximas 26 h (la ventana del recordatorio) no hace falta mandárselo.
+  const recordado = r.inicio <= fechaHoraLocal(new Date(Date.now() + 26 * 3600_000));
   const id = memoria.crearTurno({ telefono: ctx.telefono, ...r, recordado });
   memoria.registrarEvento("turno", ctx.telefono, r.servicio.split(" + ")[0]);
+  // Venía de la lista de espera: es una cita rescatada de una cancelación.
+  if (memoria.fueAvisado(ctx.telefono, r.inicio.slice(0, 10))) memoria.registrarEvento("rescatada", ctx.telefono, String(r.precio ?? 0));
 
   const turno = { id, nombre: r.nombre, servicio: r.servicio, inicio: r.inicio, fin: r.fin, barbero: r.barbero };
   const evento = await agregarAlCalendario({ ...turno, telefono: ctx.telefono });
@@ -92,7 +138,17 @@ export async function cancelar(id: number, telefono: string): Promise<memoria.Tu
   if (!turno) return undefined;
   memoria.registrarEvento("cancelacion", telefono, turno.servicio.split(" + ")[0]);
   await quitarDelCalendario(datos.evento_calendario);
+  await ofrecerLugarLiberado(turno.inicio.slice(0, 10));
   return turno;
+}
+
+/** La política de anticipación vale para cancelar y para cambiar la cita. */
+function fueraDePlazo(inicio: string): string | null {
+  const horas = agenda.anticipacionCancelarHoras ?? 0;
+  if (horas && inicio < fechaHoraLocal(new Date(Date.now() + horas * 3600_000))) {
+    return `Faltan menos de ${horas} h para la cita y la política no permite cancelarla ni cambiarla por aquí. Ofrécele pasar con una persona.`;
+  }
+  return null;
 }
 
 function respuestaDeError(e: unknown): string {
@@ -254,10 +310,8 @@ const comunes = [
       const proxima = memoria.turnosFuturosDe(ctx.telefono, fechaHoraLocal(ahora)).find((t) => t.id === cita_id);
       if (!proxima) return "No encontré esa cita entre las próximas citas de este cliente.";
 
-      const horas = agenda.anticipacionCancelarHoras ?? 0;
-      if (horas && proxima.inicio < fechaHoraLocal(new Date(ahora.getTime() + horas * 3600_000))) {
-        return `Faltan menos de ${horas} h para la cita y la política no permite cancelarla por aquí. Ofrécele pasar con una persona.`;
-      }
+      const plazo = fueraDePlazo(proxima.inicio);
+      if (plazo) return plazo;
 
       try {
         const turno = await cancelar(cita_id, ctx.telefono);
@@ -267,6 +321,85 @@ const comunes = [
       } catch (e) {
         return respuestaDeError(e);
       }
+    },
+  }),
+
+  definir({
+    nombre: "confirmar_cita",
+    descripcion:
+      "Marca que el cliente confirmó que sí va a ir a su cita (por ejemplo, cuando contesta el recordatorio con \"confirmo\" o \"ahí estaré\").",
+    esquema: z.strictObject({ cita_id: z.number().int().describe("Número de la cita, obtenido de ver_mis_citas") }),
+    ejecutar: (({ cita_id }, ctx) => {
+      const cita = memoria.turnosFuturosDe(ctx.telefono, fechaHoraLocal(new Date())).find((t) => t.id === cita_id);
+      if (!cita) return "No encontré esa cita entre las próximas citas de este cliente.";
+      if (!cita.confirmada) {
+        memoria.actualizarTurno(cita_id, "confirmada", 1);
+        memoria.registrarEvento("confirmacion", ctx.telefono, String(cita_id));
+      }
+      return `Cita #${cita_id} confirmada: ${cita.servicio}${cita.barbero ? ` con ${cita.barbero}` : ""}, ${cuando(cita.inicio)}.`;
+    }),
+  }),
+
+  definir({
+    nombre: "reprogramar_cita",
+    descripcion:
+      "Cambia la fecha y hora de una cita del cliente (mismo paquete y mismo barbero). Antes consulta la disponibilidad " +
+      "con ese barbero y confirma el nuevo horario con el cliente.",
+    esquema: z.strictObject({
+      cita_id: z.number().int().describe("Número de la cita, obtenido de ver_mis_citas"),
+      fecha,
+      hora,
+    }),
+    ejecutar: async ({ cita_id, fecha, hora }, ctx) => {
+      const cita = memoria.turnosFuturosDe(ctx.telefono, fechaHoraLocal(new Date())).find((t) => t.id === cita_id);
+      if (!cita) return "No encontré esa cita entre las próximas citas de este cliente.";
+      const plazo = fueraDePlazo(cita.inicio);
+      if (plazo) return plazo;
+
+      const inicio = `${fecha}T${hora}`;
+      let fin: string;
+      try {
+        if (cita.codigo) {
+          await barberia.reprogramar(cita.codigo, fecha, hora);
+          fin = await barberia.finDeCita(fecha, hora);
+        } else {
+          if (!horariosLibresLocal(fecha, cita.servicio, cita.id).includes(hora)) {
+            return `El horario ${hora} del ${fecha} no está disponible. Vuelve a consultar la disponibilidad.`;
+          }
+          fin = `${fecha}T${aHora(aMinutos(hora) + (agenda.servicios[cita.servicio] ?? aMinutos(cita.fin.slice(11)) - aMinutos(cita.inicio.slice(11))))}`;
+        }
+      } catch (e) {
+        return respuestaDeError(e);
+      }
+
+      const datos = memoria.turnoPorId(cita.id)!;
+      memoria.moverTurno(cita.id, inicio, fin, inicio <= fechaHoraLocal(new Date(Date.now() + 26 * 3600_000)));
+      memoria.registrarEvento("reprogramacion", ctx.telefono, String(cita.id));
+      await quitarDelCalendario(datos.evento_calendario);
+      const evento = await agregarAlCalendario({ ...cita, inicio, fin, telefono: ctx.telefono });
+      if (evento) memoria.actualizarTurno(cita.id, "evento_calendario", evento);
+
+      await avisarAlDueno(`🔁 Cita #${cita.id} cambiada: ${cita.nombre} — ${cita.servicio}, antes ${cuando(cita.inicio)}, ahora ${cuando(inicio)}`);
+      await ofrecerLugarLiberado(cita.inicio.slice(0, 10));
+      return `Cita #${cita.id} cambiada: ${cita.servicio}${cita.barbero ? ` con ${cita.barbero}` : ""}, ahora ${cuando(inicio)}.`;
+    },
+  }),
+
+  definir({
+    nombre: "apuntar_lista_espera",
+    descripcion:
+      "Apunta al cliente en la lista de espera de un día que está lleno. Si alguien cancela o cambia su cita ese día, " +
+      "se le avisa automáticamente por aquí. Ofrécela cuando no haya lugar el día que el cliente quiere.",
+    esquema: z.strictObject({
+      fecha,
+      barbero: z.string().describe('Barbero que quiere el cliente, o "cualquiera"'),
+    }),
+    ejecutar: ({ fecha, barbero }, ctx) => {
+      if (fecha < fechaLocal(new Date())) return "Esa fecha ya pasó.";
+      const pedido = barbero.toLowerCase() === "cualquiera" ? null : barbero;
+      memoria.apuntarEnEspera(ctx.telefono, ctx.nombreWhatsapp, fecha, pedido);
+      memoria.registrarEvento("lista_espera", ctx.telefono, fecha);
+      return `Cliente apuntado en la lista de espera del ${diaDeLaSemana(fecha)} ${fecha}${pedido ? ` con ${pedido}` : ""}. Si se libera un lugar, se le avisa por aquí.`;
     },
   }),
 

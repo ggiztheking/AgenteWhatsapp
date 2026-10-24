@@ -34,6 +34,8 @@ export function resumen(periodo: Periodo): string {
   const cancelados = de("cancelacion").length;
   const derivaciones = de("derivacion");
   const sinLugar = de("sin_lugar");
+  const rescatadas = de("rescatada");
+  const recuperado = rescatadas.reduce((s, e) => s + (Number(e.detalle) || 0), 0);
 
   // La agenda del período: turnos que caen en esos días (agendados por el agente o antes).
   const turnos = memoria.turnosEntre(desde, hasta);
@@ -51,6 +53,9 @@ export function resumen(periodo: Periodo): string {
     "",
     `💬 Mensajes: ${mensajes.length} de ${clientes} clientes (${memoria.clientesNuevosEntre(desde, hasta)} nuevos)`,
     `📅 Citas agendadas por el agente: ${agendados} · canceladas: ${cancelados}`,
+    `✅ Confirmaron su cita: ${de("confirmacion").length} · cambiaron de horario: ${de("reprogramacion").length}`,
+    `♻️ Lista de espera: ${de("lista_espera").length} apuntados · ${de("lugar_ofrecido").length} avisados · ${rescatadas.length} citas rescatadas` +
+      (recuperado ? ` (${pesos(recuperado)} ${config.moneda} que se iban a perder)` : ""),
     `🛍️ Pedidos: ${de("pedido").length}`,
     `🙋 Pasados contigo: ${derivaciones.length} (${pct(new Set(derivaciones.map((e) => e.telefono)).size, clientes)} de los clientes)`,
   ];
@@ -80,11 +85,13 @@ export function agendaDelDia(fecha: string): string {
   const turnos = memoria.turnosDelDia(fecha);
   const encabezado = `📅 *Citas del ${diaDeLaSemana(fecha)} ${fecha}*${barberiaActiva() ? " agendadas por WhatsApp (la agenda completa está en tu panel)" : ""}`;
   if (!turnos.length) return `${encabezado}\nSin citas.`;
+  const pendientes = turnos.filter((t) => !t.confirmada).length;
   return [
     encabezado,
+    ...(pendientes ? [`✅ confirmada · ⏳ sin confirmar (${pendientes})`] : []),
     ...turnos.map(
       (t) =>
-        `${t.inicio.slice(11)} · ${t.servicio}${t.barbero ? ` · ${t.barbero}` : ""} · ${t.nombre} (#${t.id}, +${memoria.telefonoDeTurno(t.id)})`,
+        `${t.confirmada ? "✅" : "⏳"} ${t.inicio.slice(11)} · ${t.servicio}${t.barbero ? ` · ${t.barbero}` : ""} · ${t.nombre} (#${t.id}, +${memoria.telefonoDeTurno(t.id)})`,
     ),
   ].join("\n");
 }

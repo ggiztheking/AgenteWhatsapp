@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { config } from "./config.js";
+import { fechaHoraLocal } from "./fechas.js";
 import * as memoria from "./memoria.js";
 
 const API = "https://graph.facebook.com/v23.0";
@@ -65,6 +66,22 @@ export async function enviarPlantilla(para: string, nombre: string, parametros: 
         : [],
     },
   });
+}
+
+/**
+ * Le escribe a un cliente fuera de una conversación (recordatorios, lista de espera): con texto libre si su
+ * ventana de 24 h está abierta, si no con la plantilla (si hay). Devuelve si se pudo enviar.
+ */
+export async function escribirAlCliente(
+  telefono: string,
+  texto: string,
+  plantilla: string,
+  parametros: string[],
+): Promise<boolean> {
+  const ultimo = memoria.ultimoMensajeDe(telefono);
+  const ventanaAbierta = !!ultimo && ultimo > fechaHoraLocal(new Date(Date.now() - 23.5 * 3600_000));
+  if (ventanaAbierta && (await enviarTexto(telefono, texto)).ok) return true;
+  return plantilla ? (await enviarPlantilla(telefono, plantilla, parametros)).ok : false;
 }
 
 /** Marca el mensaje como leído (tildes azules) y muestra "escribiendo..." mientras el agente piensa. */

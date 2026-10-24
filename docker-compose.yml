@@ -1,0 +1,28 @@
+# Para un servidor propio (Akamai Cloud / Linode, cualquier VPS): el agente + Caddy, que saca y renueva solo
+# el certificado HTTPS que Meta exige para el webhook. Ver deploy/akamai.md.
+services:
+  agente:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: "3000"
+    volumes:
+      - ./data:/app/data
+
+  caddy:
+    image: caddy:2.10
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMINIO: ${DOMINIO:?Falta DOMINIO en .env}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      - agente
+
+volumes:
+  caddy_data:
