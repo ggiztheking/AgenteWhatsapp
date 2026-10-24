@@ -40,6 +40,7 @@ echo "Configuración del agente de WhatsApp de Estilo Internacional"
 echo "Las claves no se ven mientras las escribes. Si todavía no tienes alguna, deja Enter y la llenas después."
 
 preguntar ANTHROPIC_API_KEY "Clave de Claude (console.anthropic.com → API Keys, empieza con sk-ant-)" secreta
+preguntar CLAUDE_MODELO "Modelo: claude-opus-5-5 (el mejor), claude-sonnet-5-5 (mitad de precio) o claude-haiku-5-5 (el más barato)"
 preguntar WHATSAPP_TOKEN "Token permanente de WhatsApp (Meta Business → Usuarios del sistema)" secreta
 preguntar WHATSAPP_PHONE_NUMBER_ID "Phone number ID (Meta → WhatsApp → Configuración de la API)"
 preguntar WHATSAPP_APP_SECRET "App Secret (Meta → tu app → Configuración → Básica)" secreta

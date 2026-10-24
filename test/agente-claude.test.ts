@@ -34,6 +34,7 @@ Object.assign(process.env, {
   WHATSAPP_TOKEN: "",
   DUENO_TELEFONO: "",
   BARBERIA_URL: "",
+  CLAUDE_MODELO: "",
   MERCADOPAGO_ACCESS_TOKEN: "",
   GOOGLE_CALENDAR_ID: "",
 });
@@ -61,6 +62,7 @@ test("consulta, agenda con herramientas y responde al cliente", async () => {
 
   const [primero, segundo] = pedidos.splice(0);
   assert.equal(primero.model, "claude-opus-5-5");
+  assert.equal((primero as unknown as { fallbacks: string }).fallbacks, "default");
   assert.match(primero.system, /español de México/);
   assert.match(primero.system, /Estilo Internacional/);
   assert.deepEqual(

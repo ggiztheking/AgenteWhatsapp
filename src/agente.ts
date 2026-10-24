@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { infoNegocio } from "./config.js";
+import { config, infoNegocio } from "./config.js";
 import { ahoraLegible } from "./fechas.js";
 import { definicionesHerramientas, ejecutarHerramienta, type Contexto } from "./herramientas.js";
 import * as memoria from "./memoria.js";
@@ -29,6 +29,7 @@ ${infoNegocio}
 </negocio>`;
 
 export type Imagen = { datos: Buffer; tipo: string };
+const CON_FALLBACK = ["claude-opus-5-5", "claude-sonnet-5-5"];
 const TIPOS_IMAGEN = ["image/jpeg", "image/png", "image/gif", "image/webp"] as const;
 
 /** Procesa un mensaje del cliente y devuelve el texto a enviarle por WhatsApp. */
@@ -59,11 +60,14 @@ export async function responder(
   try {
     for (let vuelta = 0; vuelta < MAX_VUELTAS; vuelta++) {
       const msg = await client.beta.messages.create({
-        model: "claude-opus-5-5",
+        model: config.modelo,
         max_tokens: 16000,
         output_config: { effort: "medium" },
-        betas: ["server-side-fallback-2026-07-01"],
-        fallbacks: "default",
+        // El fallback del servidor (si el modelo rechaza, la API reintenta con otro) existe en Opus y Sonnet, no en Haiku.
+        ...(CON_FALLBACK.includes(config.modelo) && {
+          betas: ["server-side-fallback-2026-07-01"],
+          fallbacks: "default" as const,
+        }),
         cache_control: { type: "ephemeral" },
         system: SYSTEM,
         tools: definicionesHerramientas,

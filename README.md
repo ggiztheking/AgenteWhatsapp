@@ -151,6 +151,7 @@ Lista para salir:
 
 ## Notas
 
-- Modelo: `claude-opus-5-5` con esfuerzo `medium`. Usa el *fallback* del servidor (`fallbacks: "default"`): si el modelo rechaza un mensaje, la API lo reintenta con otro modelo automáticamente.
+- Modelo: `CLAUDE_MODELO` en `.env` (por defecto `claude-opus-5-5`; también `claude-sonnet-5-5` o `claude-haiku-5-5`), con esfuerzo `medium`. En Opus y Sonnet usa el *fallback* del servidor (`fallbacks: "default"`): si el modelo rechaza un mensaje, la API lo reintenta con otro modelo automáticamente. Haiku no tiene ese fallback.
+- La clave de Claude es de la **API** (console.anthropic.com), que se paga por uso y por separado de la suscripción de claude.ai.
 - La memoria de cada cliente se reinicia después de 24 h sin mensajes (las citas y pedidos se quedan guardados).
 - La hora es la de Mérida (`TZ=America/Merida`).
