@@ -1,0 +1,19 @@
+{
+  "intervaloMinutos": 30,
+  "horarios": {
+    "lunes": [["10:00", "19:00"]],
+    "martes": [["10:00", "19:00"]],
+    "miercoles": [["10:00", "19:00"]],
+    "jueves": [["10:00", "19:00"]],
+    "viernes": [["10:00", "19:00"]],
+    "sabado": [["10:00", "14:00"]],
+    "domingo": []
+  },
+  "servicios": {
+    "Corte de pelo": 30,
+    "Corte + barba": 45,
+    "Color": 90,
+    "Brushing": 30
+  },
+  "diasCerrado": []
+}
