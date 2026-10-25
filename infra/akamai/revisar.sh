@@ -10,11 +10,11 @@ mkdir -p "$SALIDA"
 BASE=${IP//./-}.sslip.io
 AHORA=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-# probar <componente> <qué es> <url> [texto esperado]
+# probar <componente> <qué es> <url> [texto esperado]  (sigue redirecciones: cuenta la página final)
 probar() {
   local cuerpo codigo seg
   cuerpo=$(mktemp)
-  read -r codigo seg < <(curl -s -o "$cuerpo" -w '%{http_code} %{time_total}\n' --max-time 15 "$3" 2>/dev/null || echo "000 0")
+  read -r codigo seg < <(curl -sL -o "$cuerpo" -w '%{http_code} %{time_total}\n' --max-time 15 "$3" 2>/dev/null || echo "000 0")
   local estado="En línea"
   if [ "$codigo" = "000" ]; then estado="Sin respuesta"
   elif [ "$codigo" -ge 400 ]; then estado="Error"
