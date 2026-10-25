@@ -68,6 +68,9 @@ aleatorio() { head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c "$
 [ -n "$(valor POSTGRES_PASSWORD)" ] || fijar POSTGRES_PASSWORD "$(aleatorio 32)"
 [ -n "$(valor ADMIN_PASS)" ] || fijar ADMIN_PASS "${ADMIN_PASS:-$(aleatorio 16)}"
 [ -n "$(valor SUPER_PASS)" ] || fijar SUPER_PASS "${SUPER_PASS:-$(aleatorio 20)}"
+# Qué ve la gente en la dirección principal: "agenda" (la página de Estilo Internacional de barberia-saas,
+# con reservas directas) o "sitio" (la página del repositorio estilo-internacional). Se cambia en este .env.
+[ -n "$(valor PAGINA_PRINCIPAL)" ] || fijar PAGINA_PRINCIPAL agenda
 fijar RAIZ "$RAIZ"
 fijar SITIO "$BASE"
 fijar AGENDA "agenda.$BASE"
@@ -115,7 +118,11 @@ cd "$AQUI"
 paso "Compilando la agenda y el agente (lo más tardado)"
 docker compose build
 mkdir -p "$RAIZ/sitio"
-if [ -d "$RAIZ/estilo-internacional/app" ]; then
+if [ "$(valor PAGINA_PRINCIPAL)" != "sitio" ]; then
+  # Sin página propia, Caddy manda la dirección principal a la página de la agenda.
+  find "$RAIZ/sitio" -mindepth 1 -delete
+  paso "La dirección principal muestra la página de la agenda"
+elif [ -d "$RAIZ/estilo-internacional/app" ]; then
   paso "Compilando la página"
   if docker build -q -f "$AQUI/sitio.Dockerfile" --build-arg "SITIO_URL=https://$BASE" \
        --output "type=local,dest=$RAIZ/sitio.nuevo" "$RAIZ/estilo-internacional" >/dev/null; then

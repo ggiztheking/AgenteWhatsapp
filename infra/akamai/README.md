@@ -5,7 +5,7 @@ Un solo servidor (Linode 2 GB, Miami) con todo Estilo Internacional, con HTTPS a
 
 | Dirección | Qué es |
 |---|---|
-| `https://<ip>.sslip.io` | La página (repositorio `estilo-internacional`, compilada como sitio estático). Ese repositorio es privado: si el servidor no lo puede bajar, esta dirección manda a la página de Estilo Internacional de la agenda |
+| `https://<ip>.sslip.io` | Manda a la página de Estilo Internacional de la agenda. Con `PAGINA_PRINCIPAL=sitio` en `/opt/estilo/AgenteWhatsapp/infra/akamai/.env` muestra en cambio la página del repositorio `estilo-internacional`, compilada como sitio estático |
 | `https://agenda.<ip>.sslip.io/estilo-internacional` | Reservas en línea y panel (`barberia-saas` + PostgreSQL) |
 | `https://whatsapp.<ip>.sslip.io/webhook` | El agente de WhatsApp (este repositorio), que reserva en esa misma agenda |
 
