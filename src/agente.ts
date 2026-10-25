@@ -3,8 +3,11 @@ import { config, infoNegocio } from "./config.js";
 import { ahoraLegible } from "./fechas.js";
 import { definicionesHerramientas, ejecutarHerramienta, type Contexto } from "./herramientas.js";
 import * as memoria from "./memoria.js";
+import * as oxion from "./oxion.js";
 
-const client = new Anthropic();
+// Se crea al primer uso: con Oxion no hace falta clave de Anthropic.
+let cliente: Anthropic | undefined;
+const claude = () => (cliente ??= new Anthropic());
 const MAX_VUELTAS = 8;
 
 const SYSTEM = `Eres el asistente de WhatsApp de este negocio. Atiendes a los clientes en nombre del negocio, en español de México, tuteando, con tono cálido y profesional.
@@ -59,26 +62,29 @@ export async function responder(
   let respuesta = "";
   try {
     for (let vuelta = 0; vuelta < MAX_VUELTAS; vuelta++) {
-      const msg = await client.beta.messages.create({
-        model: config.modelo,
-        max_tokens: 16000,
-        output_config: { effort: "medium" },
-        // El fallback del servidor (si el modelo rechaza, la API reintenta con otro) existe en Opus y Sonnet, no en Haiku.
-        ...(CON_FALLBACK.includes(config.modelo) && {
-          betas: ["server-side-fallback-2026-07-01"],
-          fallbacks: "default" as const,
-        }),
-        cache_control: { type: "ephemeral" },
-        system: SYSTEM,
-        tools: definicionesHerramientas,
-        messages: mensajes,
-      });
+      const msg =
+        config.proveedor === "oxion"
+          ? await oxion.crearMensaje(SYSTEM, mensajes, definicionesHerramientas)
+          : await claude().beta.messages.create({
+              model: config.modelo,
+              max_tokens: 16000,
+              output_config: { effort: "medium" },
+              // El fallback del servidor (si el modelo rechaza, la API reintenta con otro) existe en Opus y Sonnet, no en Haiku.
+              ...(CON_FALLBACK.includes(config.modelo) && {
+                betas: ["server-side-fallback-2026-07-01"],
+                fallbacks: "default" as const,
+              }),
+              cache_control: { type: "ephemeral" },
+              system: SYSTEM,
+              tools: definicionesHerramientas,
+              messages: mensajes,
+            });
 
       // Se guarda el contenido completo (incluye bloques de thinking), sin modificar.
       mensajes.push({ role: "assistant", content: msg.content });
       respuesta = msg.content
-        .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")
-        .map((b) => b.text)
+        .map((b) => (b.type === "text" ? b.text : ""))
+        .filter(Boolean)
         .join("\n")
         .trim();
 
@@ -99,7 +105,9 @@ export async function responder(
       mensajes.push({ role: "user", content: resultados });
     }
   } catch (error) {
-    if (error instanceof Anthropic.RateLimitError) {
+    if (error instanceof oxion.ErrorOxion) {
+      console.error(`Error de Oxion AI ${error.status}:`, error.message);
+    } else if (error instanceof Anthropic.RateLimitError) {
       console.error("Límite de uso de la API de Claude alcanzado");
     } else if (error instanceof Anthropic.APIError) {
       console.error(`Error de la API de Claude ${error.status}:`, error.message);

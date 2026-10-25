@@ -34,6 +34,16 @@ export const config = {
   moneda: process.env.MONEDA || "MXN",
   // claude-opus-5-5 (el más capaz), claude-sonnet-5-5 (la mitad de precio) o claude-haiku-5-5 (el más barato).
   modelo: process.env.CLAUDE_MODELO || "claude-opus-5-5",
+  // Quién responde: "claude" (la API de Anthropic) u "oxion" (Oxion AI, compatible con la API de OpenAI).
+  // Sin IA_PROVEEDOR: Claude si hay ANTHROPIC_API_KEY; si no, Oxion si hay OXION_API_KEY.
+  proveedor: (process.env.IA_PROVEEDOR ||
+    (!process.env.ANTHROPIC_API_KEY && process.env.OXION_API_KEY ? "oxion" : "claude")) as "claude" | "oxion",
+  oxion: {
+    clave: process.env.OXION_API_KEY ?? "",
+    // Otro proveedor compatible con OpenAI (OpenRouter, etc.) funciona cambiando esta dirección.
+    url: (process.env.OXION_URL || "https://www.oxionai.com/v1").replace(/\/$/, ""),
+    modelo: process.env.OXION_MODELO || "claude-opus-5.5",
+  },
   // Agenda de barberia-saas: si está configurada, las citas se consultan y se reservan ahí (la misma agenda
   // que usa la página web), en vez de la agenda local de agenda.json.
   barberia: {

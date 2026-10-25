@@ -33,6 +33,7 @@ Cliente ──► WhatsApp (Cloud API) ──► Agente (Claude) ──┬─►
 | `negocio.md` | **Lo que sabe el agente**: paquetes, extras, precios, horario, dirección y políticas. |
 | `agenda.json` | Agenda local de respaldo (solo se usa si no configuras `BARBERIA_URL`). |
 | `src/agente.ts` | El agente: instrucciones, llamada a Claude y ciclo de herramientas. |
+| `src/oxion.ts` | La otra opción de IA: Oxion AI (compatible con OpenAI), traduciendo mensajes y herramientas. |
 | `src/herramientas.ts` | Acciones: `consultar_disponibilidad`, `agendar_cita`, `ver_mis_citas`, `confirmar_cita`, `reprogramar_cita`, `cancelar_cita`, `apuntar_lista_espera`, `tomar_pedido`, `derivar_a_humano`. |
 | `src/barberia.ts` | Conexión con la agenda de barberia-saas. |
 | `src/memoria.ts` | Base SQLite: conversaciones, copia de las citas, pedidos, métricas y respaldos. |
@@ -155,5 +156,10 @@ Lista para salir:
 
 - Modelo: `CLAUDE_MODELO` en `.env` (por defecto `claude-opus-5-5`; también `claude-sonnet-5-5` o `claude-haiku-5-5`), con esfuerzo `medium`. En Opus y Sonnet usa el *fallback* del servidor (`fallbacks: "default"`): si el modelo rechaza un mensaje, la API lo reintenta con otro modelo automáticamente. Haiku no tiene ese fallback.
 - La clave de Claude es de la **API** (console.anthropic.com), que se paga por uso y por separado de la suscripción de claude.ai.
+- **Sin clave de Claude: Oxion AI.** Con `OXION_API_KEY` (y sin `ANTHROPIC_API_KEY`, o con `IA_PROVEEDOR=oxion`) el agente
+  usa Oxion AI, una pasarela compatible con la API de OpenAI que ofrece varios modelos (`OXION_MODELO`, por defecto
+  `claude-opus-5.5`; la lista sale de `GET https://www.oxionai.com/v1/models`). Las conversaciones se guardan igual, así
+  que se puede cambiar de proveedor sin perderlas. Con Oxion no hay *fallback* del servidor ni caché de instrucciones,
+  y los mensajes de los clientes pasan por un intermediario más: con la clave de Claude vuelve a usarse Claude directo.
 - La memoria de cada cliente se reinicia después de 24 h sin mensajes (las citas y pedidos se quedan guardados).
 - La hora es la de Mérida (`TZ=America/Merida`).

@@ -44,6 +44,7 @@ echo "Las claves no se ven mientras las escribes. Si todavía no tienes alguna, 
 
 preguntar ANTHROPIC_API_KEY "Clave de Claude (console.anthropic.com → API Keys, empieza con sk-ant-)" secreta
 preguntar CLAUDE_MODELO "Modelo: claude-opus-5-5 (el mejor), claude-sonnet-5-5 (mitad de precio) o claude-haiku-5-5 (el más barato)"
+preguntar OXION_API_KEY "O, en vez de la clave de Claude: clave de Oxion AI (oxionai.com → Dashboard → API Keys, empieza con cc_). Si están las dos, se usa Claude" secreta
 preguntar WHATSAPP_TOKEN "Token permanente de WhatsApp (Meta Business → Usuarios del sistema)" secreta
 preguntar WHATSAPP_PHONE_NUMBER_ID "Phone number ID (Meta → WhatsApp → Configuración de la API)"
 preguntar WHATSAPP_APP_SECRET "App Secret (Meta → tu app → Configuración → Básica)" secreta
@@ -83,9 +84,11 @@ echo "   Token de verificación:         $(actual WHATSAPP_VERIFY_TOKEN)"
 echo " y suscríbete al campo  messages"
 echo
 faltan=""
-for c in ANTHROPIC_API_KEY WHATSAPP_TOKEN WHATSAPP_PHONE_NUMBER_ID WHATSAPP_APP_SECRET DUENO_TELEFONO; do
+for c in WHATSAPP_TOKEN WHATSAPP_PHONE_NUMBER_ID WHATSAPP_APP_SECRET DUENO_TELEFONO; do
   [ -n "$(actual $c)" ] || faltan="$faltan $c"
 done
+# La IA puede ser Claude u Oxion: basta una de las dos claves.
+[ -n "$(actual ANTHROPIC_API_KEY)$(actual OXION_API_KEY)" ] || faltan="$faltan ANTHROPIC_API_KEY(u OXION_API_KEY)"
 if [ -n "$faltan" ]; then
   echo " Faltan:$faltan"
   if [ -n "${ENV_FILE:-}" ]; then echo " Cuando las tengas, vuelve a correr:  claves"; else echo " Cuando las tengas:  cd ~/agente && bash deploy/configurar.sh"; fi

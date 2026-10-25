@@ -234,7 +234,8 @@ if (!config.whatsapp.appSecret) {
   console.warn("⚠️  WHATSAPP_APP_SECRET vacío: el webhook acepta pedidos sin verificar la firma de Meta.");
 }
 console.log(
-  `Agenda: ${barberiaActiva() ? `barberia-saas (${config.barberia.url}/${config.barberia.slug})` : "local (agenda.json)"}\n` +
+  `IA: ${config.proveedor === "oxion" ? `Oxion AI (${config.oxion.modelo})` : `Claude (${config.modelo})`}\n` +
+    `Agenda: ${barberiaActiva() ? `barberia-saas (${config.barberia.url}/${config.barberia.slug})` : "local (agenda.json)"}\n` +
     `Integraciones: Google Calendar ${calendarioActivo() ? "✅" : "—"} · Mercado Pago ${config.mercadoPago.accessToken ? "✅" : "—"}` +
     ` · Audios ${transcripcionActiva() ? "✅" : "—"} · Recordatorios ${config.whatsapp.plantillaRecordatorio ? "✅" : "—"}`,
 );
