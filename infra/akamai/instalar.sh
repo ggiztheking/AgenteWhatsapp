@@ -7,7 +7,8 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
 RAIZ=/opt/estilo
-RAMA_AGENTE=${RAMA_AGENTE:-claude/pensive-hopper-3dfnry}
+# Lo que está en esta rama de AgenteWhatsapp es lo que corre en el servidor (incluidas las apps de apps/).
+RAMA_AGENTE=${RAMA_AGENTE:-produccion}
 AQUI=$RAIZ/AgenteWhatsapp/infra/akamai
 mkdir -p "$RAIZ" "$RAIZ/datos-agente" "$RAIZ/respaldos"
 
@@ -44,8 +45,10 @@ export GIT_TERMINAL_PROMPT=0
 traer() { # traer <repo> <rama|"">
   local dir=$RAIZ/$1
   if [ -d "$dir/.git" ]; then
+    # Si cambió la rama a seguir, la copia se pasa a la nueva.
+    [ -n "$2" ] && git -C "$dir" remote set-branches origin "$2"
     # Copia solo para correr: se deja igual a GitHub aunque allá se reescriba la historia.
-    timeout 300 git -C "$dir" fetch -q --depth 1 origin && git -C "$dir" reset -q --hard FETCH_HEAD
+    timeout 300 git -C "$dir" fetch -q --depth 1 origin ${2:+"$2"} && git -C "$dir" reset -q --hard FETCH_HEAD
   else
     timeout 300 git clone -q --depth 1 ${2:+-b "$2"} "https://github.com/ggiztheking/$1.git" "$dir"
   fi
@@ -75,6 +78,10 @@ fijar RAIZ "$RAIZ"
 fijar SITIO "$BASE"
 fijar AGENDA "agenda.$BASE"
 fijar WHATSAPP "whatsapp.$BASE"
+# Las apps de apps/ (las que crea /crear-app): su servicio, su subdominio y su base de datos.
+fijar COMPOSE_FILE "docker-compose.yml:$RAIZ/apps.compose.yml"
+paso "Preparando las apps"
+APPS=$(python3 "$AQUI/apps.py" "$RAIZ" "$BASE")
 
 # Claves del agente: se llenan con el comando `claves`. Empiezan vacías (sin WhatsApp ni Claude no manda nada).
 AGENTE_ENV=$RAIZ/agente.env
@@ -115,7 +122,7 @@ ufw allow OpenSSH >/dev/null && ufw allow 80/tcp >/dev/null && ufw allow 443/tcp
 
 # --- Levantar todo ---
 cd "$AQUI"
-paso "Compilando la agenda y el agente (lo más tardado)"
+paso "Compilando la agenda, el agente y las apps (lo más tardado)"
 docker compose build
 mkdir -p "$RAIZ/sitio"
 if [ "$(valor PAGINA_PRINCIPAL)" != "sitio" ]; then
@@ -135,7 +142,21 @@ elif [ -d "$RAIZ/estilo-internacional/app" ]; then
 fi
 [ -n "${SERVIDOR_PROGRESO:-}" ] && kill "$SERVIDOR_PROGRESO" 2>/dev/null && sleep 1
 paso "Arrancando"
-docker compose up -d
+docker compose up -d postgres
+for _ in $(seq 1 60); do docker compose exec -T postgres pg_isready -q -U barberia && break; sleep 2; done
+# Cada app con su propia base y su propio usuario de PostgreSQL (sin acceso a la de la agenda).
+docker compose exec -T postgres psql -q -U barberia -d barberia -c "REVOKE CONNECT ON DATABASE barberia FROM PUBLIC"
+while read -r app db clave; do
+  [ -n "$app" ] || continue
+  docker compose exec -T postgres psql -q -v ON_ERROR_STOP=1 -U barberia -d barberia \
+    -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '$db') THEN CREATE ROLE $db LOGIN PASSWORD '$clave'; END IF; END \$\$;"
+  docker compose exec -T postgres psql -tAq -U barberia -d barberia -c "SELECT 1 FROM pg_database WHERE datname = '$db'" | grep -q 1 \
+    || docker compose exec -T postgres psql -q -U barberia -d barberia -c "CREATE DATABASE $db OWNER $db"
+  docker compose exec -T postgres psql -q -U barberia -d barberia -c "REVOKE ALL ON DATABASE $db FROM PUBLIC"
+done <<< "$APPS"
+docker compose up -d --remove-orphans
+# Caddy toma los subdominios de apps nuevas sin reiniciarse.
+docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1 || true
 
 # --- Primera vez: horario y datos reales en la agenda (se pueden cambiar en el panel) ---
 paso "Configurando la agenda"
@@ -155,14 +176,17 @@ SQL
   touch "$RAIZ/.agenda-configurada"
 fi
 
-# --- Actualizaciones automáticas: cada 15 min revisa GitHub y, si algo cambió, vuelve a correr esto ---
-echo "*/15 * * * * root bash $AQUI/actualizar.sh" > /etc/cron.d/estilo-actualizar
+# --- Actualizaciones automáticas: cada 2 min revisa GitHub y, si algo cambió, vuelve a correr esto ---
+echo "*/2 * * * * root bash $AQUI/actualizar.sh" > /etc/cron.d/estilo-actualizar
 
 # --- Respaldo diario de la base de la agenda (se quedan 7 días) ---
 cat > /etc/cron.daily/respaldo-estilo <<EOF
 #!/bin/sh
 cd $AQUI && docker compose exec -T postgres pg_dump -U barberia barberia | gzip > $RAIZ/respaldos/agenda-\$(date +%F).sql.gz
-find $RAIZ/respaldos -name 'agenda-*.sql.gz' -mtime +7 -delete
+for db in \$(docker compose exec -T postgres psql -tAq -U barberia -d barberia -c "SELECT datname FROM pg_database WHERE datname LIKE 'app_%'"); do
+  docker compose exec -T postgres pg_dump -U barberia "\$db" | gzip > $RAIZ/respaldos/\$db-\$(date +%F).sql.gz
+done
+find $RAIZ/respaldos -name '*.sql.gz' -mtime +7 -delete
 EOF
 chmod +x /etc/cron.daily/respaldo-estilo
 
@@ -177,8 +201,10 @@ Comandos:
   claves                         pide las claves del agente de WhatsApp y lo reinicia
   cd $AQUI && docker compose ps            ver qué está corriendo
   cd $AQUI && docker compose logs -f agente   ver qué hace el agente
-  bash $AQUI/instalar.sh         actualizar todo a mano (solo se hace cada 15 min si algo cambió en GitHub;
+  bash $AQUI/instalar.sh         actualizar todo a mano (solo se hace cada 2 min si algo cambió en GitHub;
                                  registro en /var/log/estilo-actualizaciones.log)
+Apps de apps/ (las crea /crear-app en Claude Code): https://<app>.$BASE
+  Claves que comparten (Mercado Pago, correo): $RAIZ/apps.env
 Contraseñas de la agenda: $ENV (ADMIN_PASS = panel del dueño, SUPER_PASS = /super)
 Respaldos diarios de la agenda: $RAIZ/respaldos
 EOF

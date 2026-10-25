@@ -29,3 +29,6 @@
 {$WHATSAPP} {
 	reverse_proxy agente:3000
 }
+
+# Las apps de apps/ (generado por apps.py: <app>.<dirección principal>).
+import /etc/caddy/apps/*.caddy

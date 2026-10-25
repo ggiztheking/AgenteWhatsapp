@@ -1,0 +1,41 @@
+{
+  "nombre": "Inventario Estilo Internacional",
+  "descripcion": "Los productos que vende la barbería, cuánto queda de cada uno y cada entrada o venta.",
+  "color": "#8a5a2b",
+  "tablas": [
+    {
+      "id": "productos",
+      "nombre": "Productos",
+      "singular": "Producto",
+      "etiqueta": "nombre",
+      "orden": "nombre",
+      "orden_dir": "asc",
+      "campos": [
+        { "id": "nombre", "nombre": "Nombre", "tipo": "texto", "requerido": true },
+        { "id": "categoria", "nombre": "Categoría", "tipo": "opcion", "opciones": ["Pomada", "Cera", "Aceite para barba", "Shampoo", "Spray", "Otro"], "requerido": true },
+        { "id": "precio", "nombre": "Precio de venta", "tipo": "dinero", "minimo": 0, "requerido": true },
+        { "id": "costo", "nombre": "Costo", "tipo": "dinero", "minimo": 0, "ayuda": "Lo que te cuesta a ti, para saber la ganancia" },
+        { "id": "existencias", "nombre": "Existencias", "tipo": "numero", "defecto": 0, "ayuda": "Se actualiza sola con cada entrada o venta" },
+        { "id": "minimo", "nombre": "Avisar cuando queden", "tipo": "numero", "defecto": 3, "minimo": 0 },
+        { "id": "activo", "nombre": "A la venta", "tipo": "si_no", "defecto": true, "en_lista": false },
+        { "id": "notas", "nombre": "Notas", "tipo": "texto_largo" }
+      ]
+    },
+    {
+      "id": "movimientos",
+      "nombre": "Entradas y ventas",
+      "singular": "Movimiento",
+      "etiqueta": "tipo",
+      "orden": "fecha",
+      "orden_dir": "desc",
+      "campos": [
+        { "id": "producto", "nombre": "Producto", "tipo": "relacion", "tabla": "productos", "requerido": true },
+        { "id": "tipo", "nombre": "Tipo", "tipo": "opcion", "opciones": ["Venta", "Entrada", "Ajuste"], "defecto": "Venta", "requerido": true },
+        { "id": "cantidad", "nombre": "Cantidad", "tipo": "numero", "defecto": 1, "requerido": true, "ayuda": "En un ajuste puede ser negativa (por ejemplo, un producto dañado)" },
+        { "id": "fecha", "nombre": "Fecha", "tipo": "fecha", "defecto": "hoy", "requerido": true },
+        { "id": "total", "nombre": "Total", "tipo": "dinero", "sumar": true, "ayuda": "En una venta se calcula solo con el precio del producto" },
+        { "id": "nota", "nombre": "Nota", "tipo": "texto" }
+      ]
+    }
+  ]
+}

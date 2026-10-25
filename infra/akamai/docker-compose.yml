@@ -62,6 +62,7 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ${RAIZ:-/opt/estilo}/sitio:/srv/sitio:ro
+      - ${RAIZ:-/opt/estilo}/caddy-apps:/etc/caddy/apps:ro
       - caddy_data:/data
     depends_on:
       - barberia

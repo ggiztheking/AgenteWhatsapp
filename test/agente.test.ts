@@ -87,7 +87,10 @@ test("cancela con anticipación, pero no a menos de 2 h de la cita", async () =>
 });
 
 test("manda recordatorio una sola vez a los turnos de las próximas 24 h", async () => {
-  const manana = new Date(Date.now() + 20 * 3600_000);
+  // A las 11 de la mañana de un día próximo (los recordatorios solo salen de 9 a 21 h), con la cita 20 h después.
+  const hoy = new Date();
+  const enHora = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + 3, 11, 0);
+  const manana = new Date(enHora.getTime() + 20 * 3600_000);
   const id = memoria.crearTurno({
     telefono: otro.telefono,
     nombre: "Beto",
@@ -95,11 +98,12 @@ test("manda recordatorio una sola vez a los turnos de las próximas 24 h", async
     inicio: fechaHoraLocal(manana),
     fin: fechaHoraLocal(new Date(manana.getTime() + 30 * 60_000)),
   });
-  const ahora = fechaHoraLocal(new Date());
-  const en24 = fechaHoraLocal(new Date(Date.now() + 24 * 3600_000));
+  const ahora = fechaHoraLocal(enHora);
+  const en24 = fechaHoraLocal(new Date(enHora.getTime() + 24 * 3600_000));
   assert.ok(memoria.turnosParaRecordar(ahora, en24).some((t) => t.id === id));
-  await enviarRecordatorios();
+  await enviarRecordatorios(enHora);
   assert.ok(!memoria.turnosParaRecordar(ahora, en24).some((t) => t.id === id));
+  await enviarRecordatorios(enHora); // una sola vez: la segunda no encuentra nada pendiente
 });
 
 test("el resumen cuenta la actividad y lo que el agente no pudo resolver", async () => {

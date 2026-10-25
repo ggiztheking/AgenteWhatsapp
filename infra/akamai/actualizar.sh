@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Lo corre cron cada 15 minutos: si alguno de los tres repositorios cambió en GitHub (o uno que era
+# Lo corre cron cada 2 minutos: si alguno de los tres repositorios cambió en GitHub (o uno que era
 # privado ya se puede bajar), trae los cambios y vuelve a correr instalar.sh, que recompila lo necesario.
 set -uo pipefail
 RAIZ=/opt/estilo

@@ -1,0 +1,22 @@
+{
+  "nombre": "Contactos",
+  "descripcion": "Personas y empresas con las que trabajas.",
+  "color": "#256f5b",
+  "tablas": [
+    {
+      "id": "contactos",
+      "nombre": "Contactos",
+      "singular": "Contacto",
+      "etiqueta": "nombre",
+      "orden": "nombre",
+      "orden_dir": "asc",
+      "campos": [
+        { "id": "nombre", "nombre": "Nombre", "tipo": "texto", "requerido": true },
+        { "id": "correo", "nombre": "Correo", "tipo": "correo" },
+        { "id": "telefono", "nombre": "Teléfono", "tipo": "telefono" },
+        { "id": "estado", "nombre": "Estado", "tipo": "opcion", "opciones": ["Nuevo", "En plática", "Cliente", "Perdido"], "defecto": "Nuevo", "requerido": true },
+        { "id": "notas", "nombre": "Notas", "tipo": "texto_largo" }
+      ]
+    }
+  ]
+}
