@@ -2,12 +2,18 @@
 	{$CADDY_OPCIONES}
 }
 
-# La página de Estilo Internacional (sitio estático).
+# La página de Estilo Internacional (sitio estático). Sin ella, la de la agenda.
 {$SITIO} {
 	root * /srv/sitio
-	encode gzip
-	try_files {path} {path}.html {path}/index.html
-	file_server
+	@sinSitio not file /index.html
+	handle @sinSitio {
+		redir https://{$AGENDA}/estilo-internacional 302
+	}
+	handle {
+		encode gzip
+		try_files {path} {path}.html {path}/index.html
+		file_server
+	}
 	handle_errors {
 		rewrite * /404.html
 		file_server

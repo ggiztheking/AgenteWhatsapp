@@ -39,17 +39,20 @@ fi
 
 # --- Código: los tres repositorios ---
 paso "Bajando el código"
+# Sin preguntar usuario ni contraseña: un repositorio privado falla en vez de quedarse esperando.
+export GIT_TERMINAL_PROMPT=0
 traer() { # traer <repo> <rama|"">
   local dir=$RAIZ/$1
   if [ -d "$dir/.git" ]; then
-    git -C "$dir" pull -q --ff-only
+    timeout 300 git -C "$dir" pull -q --ff-only
   else
-    git clone -q --depth 1 ${2:+-b "$2"} "https://github.com/ggiztheking/$1.git" "$dir"
+    timeout 300 git clone -q --depth 1 ${2:+-b "$2"} "https://github.com/ggiztheking/$1.git" "$dir"
   fi
 }
 traer AgenteWhatsapp "$RAMA_AGENTE"
 traer barberia-saas ""
-traer estilo-internacional ""
+# La página es de un repositorio privado: si no se puede bajar, se usa la de la agenda.
+traer estilo-internacional "" || paso "La página (repositorio privado) no se pudo bajar: la dirección principal mostrará la página de la agenda"
 
 # --- Direcciones: sin dominio propio se usa <ip>.sslip.io, que apunta solo a esta IP y acepta HTTPS ---
 IP=$(hostname -I | tr ' ' '\n' | grep -E '^[0-9]+(\.[0-9]+){3}$' | head -1)
@@ -108,8 +111,19 @@ ufw allow OpenSSH >/dev/null && ufw allow 80/tcp >/dev/null && ufw allow 443/tcp
 
 # --- Levantar todo ---
 cd "$AQUI"
-paso "Compilando la página, la agenda y el agente (lo más tardado)"
+paso "Compilando la agenda y el agente (lo más tardado)"
 docker compose build
+mkdir -p "$RAIZ/sitio"
+if [ -d "$RAIZ/estilo-internacional/app" ]; then
+  paso "Compilando la página"
+  if docker build -q -f "$AQUI/sitio.Dockerfile" --build-arg "SITIO_URL=https://$BASE" \
+       --output "type=local,dest=$RAIZ/sitio.nuevo" "$RAIZ/estilo-internacional" >/dev/null; then
+    rm -rf "$RAIZ/sitio" && mv "$RAIZ/sitio.nuevo" "$RAIZ/sitio"
+  else
+    rm -rf "$RAIZ/sitio.nuevo"
+    paso "La página no compiló: la dirección principal mostrará la página de la agenda"
+  fi
+fi
 [ -n "${SERVIDOR_PROGRESO:-}" ] && kill "$SERVIDOR_PROGRESO" 2>/dev/null && sleep 1
 paso "Arrancando"
 docker compose up -d

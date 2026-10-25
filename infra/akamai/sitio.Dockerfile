@@ -24,5 +24,6 @@ JSON
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm install --no-audit --no-fund && npx next build
 
-FROM caddy:2.10
-COPY --from=compilar /sitio/out /srv/sitio
+# Solo los archivos del sitio: instalar.sh los saca con  docker build --output type=local,dest=...
+FROM scratch
+COPY --from=compilar /sitio/out /

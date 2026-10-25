@@ -45,13 +45,11 @@ services:
     depends_on:
       - barberia
 
-  # Caddy sirve la página (compilada dentro de la imagen) y reenvía la agenda y el agente.
+  # Caddy sirve la página (ya compilada en RAIZ/sitio por instalar.sh) y reenvía la agenda y el agente.
+  # Si la página no está (su repositorio es privado y el servidor no lo puede bajar), la dirección principal
+  # manda a la página de Estilo Internacional que trae la agenda.
   caddy:
-    build:
-      context: ${RAIZ:-/opt/estilo}/estilo-internacional
-      dockerfile: ${RAIZ:-/opt/estilo}/AgenteWhatsapp/infra/akamai/sitio.Dockerfile
-      args:
-        SITIO_URL: https://${SITIO}
+    image: caddy:2.10
     restart: unless-stopped
     ports:
       - "80:80"
@@ -63,6 +61,7 @@ services:
       CADDY_OPCIONES: ${CADDY_OPCIONES:-}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${RAIZ:-/opt/estilo}/sitio:/srv/sitio:ro
       - caddy_data:/data
     depends_on:
       - barberia
