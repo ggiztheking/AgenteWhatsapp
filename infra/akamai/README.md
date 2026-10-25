@@ -15,3 +15,5 @@ Un solo servidor (Linode 2 GB, Miami) con todo Estilo Internacional, con HTTPS a
 - En el servidor: `claves` pide las claves del agente (Claude, Meta) y lo reinicia; `cat /root/LEEME.txt` muestra
   las direcciones y comandos; la instalación deja su registro en `/var/log/estilo-instalacion.log`.
 - La agenda guarda un respaldo diario en `/opt/estilo/respaldos` (7 días).
+- `actualizar.sh` corre cada 15 minutos: si algún repositorio cambió en GitHub, trae los cambios y vuelve a
+  correr `instalar.sh`. Así, un cambio subido a GitHub llega solo al servidor en menos de 15 minutos.

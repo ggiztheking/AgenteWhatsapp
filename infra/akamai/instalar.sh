@@ -44,7 +44,8 @@ export GIT_TERMINAL_PROMPT=0
 traer() { # traer <repo> <rama|"">
   local dir=$RAIZ/$1
   if [ -d "$dir/.git" ]; then
-    timeout 300 git -C "$dir" pull -q --ff-only
+    # Copia solo para correr: se deja igual a GitHub aunque allá se reescriba la historia.
+    timeout 300 git -C "$dir" fetch -q --depth 1 origin && git -C "$dir" reset -q --hard FETCH_HEAD
   else
     timeout 300 git clone -q --depth 1 ${2:+-b "$2"} "https://github.com/ggiztheking/$1.git" "$dir"
   fi
@@ -118,7 +119,8 @@ if [ -d "$RAIZ/estilo-internacional/app" ]; then
   paso "Compilando la página"
   if docker build -q -f "$AQUI/sitio.Dockerfile" --build-arg "SITIO_URL=https://$BASE" \
        --output "type=local,dest=$RAIZ/sitio.nuevo" "$RAIZ/estilo-internacional" >/dev/null; then
-    rm -rf "$RAIZ/sitio" && mv "$RAIZ/sitio.nuevo" "$RAIZ/sitio"
+    # Se reemplaza el contenido y no la carpeta: Caddy la tiene montada y seguiría viendo la vieja.
+    find "$RAIZ/sitio" -mindepth 1 -delete && cp -a "$RAIZ/sitio.nuevo/." "$RAIZ/sitio/" && rm -rf "$RAIZ/sitio.nuevo"
   else
     rm -rf "$RAIZ/sitio.nuevo"
     paso "La página no compiló: la dirección principal mostrará la página de la agenda"
@@ -146,6 +148,9 @@ SQL
   touch "$RAIZ/.agenda-configurada"
 fi
 
+# --- Actualizaciones automáticas: cada 15 min revisa GitHub y, si algo cambió, vuelve a correr esto ---
+echo "*/15 * * * * root bash $AQUI/actualizar.sh" > /etc/cron.d/estilo-actualizar
+
 # --- Respaldo diario de la base de la agenda (se quedan 7 días) ---
 cat > /etc/cron.daily/respaldo-estilo <<EOF
 #!/bin/sh
@@ -165,7 +170,8 @@ Comandos:
   claves                         pide las claves del agente de WhatsApp y lo reinicia
   cd $AQUI && docker compose ps            ver qué está corriendo
   cd $AQUI && docker compose logs -f agente   ver qué hace el agente
-  bash $AQUI/instalar.sh         actualizar todo a la última versión
+  bash $AQUI/instalar.sh         actualizar todo a mano (solo se hace cada 15 min si algo cambió en GitHub;
+                                 registro en /var/log/estilo-actualizaciones.log)
 Contraseñas de la agenda: $ENV (ADMIN_PASS = panel del dueño, SUPER_PASS = /super)
 Respaldos diarios de la agenda: $RAIZ/respaldos
 EOF
