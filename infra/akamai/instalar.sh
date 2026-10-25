@@ -10,11 +10,27 @@ RAIZ=/opt/estilo
 RAMA_AGENTE=${RAMA_AGENTE:-claude/pensive-hopper-3dfnry}
 AQUI=$RAIZ/AgenteWhatsapp/infra/akamai
 mkdir -p "$RAIZ" "$RAIZ/datos-agente" "$RAIZ/respaldos"
-echo "== $(date) Instalando Estilo Internacional"
+
+# Avance de la instalación: solo los nombres de los pasos, en http://<ip>/progreso.txt mientras dura
+# (sin claves ni salida de comandos). Al final Caddy toma el puerto 80 y esta página desaparece.
+PROGRESO=/run/estilo-progreso
+mkdir -p "$PROGRESO"
+paso() { echo "$(date -u +%H:%M:%S) $*" | tee -a "$PROGRESO/progreso.txt"; }
+if ! ss -ltn | grep -q ':80 '; then
+  (cd "$PROGRESO" && exec python3 -m http.server 80 >/dev/null 2>&1) &
+  SERVIDOR_PROGRESO=$!
+fi
+fallo() { paso "FALLÓ en la línea $1 (registro completo: /var/log/estilo-instalacion.log)"; }
+trap 'fallo $LINENO' ERR
+paso "Instalando Estilo Internacional"
 
 # --- Paquetes, Docker y memoria de intercambio (la compilación de la página pide más de 2 GB a ratos) ---
-apt-get update -qq
-apt-get install -y -qq git curl ca-certificates ufw >/dev/null
+# En el primer arranque Ubuntu instala actualizaciones y tiene apt ocupado: se espera hasta 15 min.
+APT="apt-get -o DPkg::Lock::Timeout=900 -qq"
+paso "Paquetes del sistema"
+$APT update
+$APT install -y git curl ca-certificates ufw >/dev/null
+paso "Docker"
 command -v docker >/dev/null || curl -fsSL https://get.docker.com | sh
 if ! swapon --show | grep -q /swapfile; then
   fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile
@@ -22,6 +38,7 @@ if ! swapon --show | grep -q /swapfile; then
 fi
 
 # --- Código: los tres repositorios ---
+paso "Bajando el código"
 traer() { # traer <repo> <rama|"">
   local dir=$RAIZ/$1
   if [ -d "$dir/.git" ]; then
@@ -91,9 +108,14 @@ ufw allow OpenSSH >/dev/null && ufw allow 80/tcp >/dev/null && ufw allow 443/tcp
 
 # --- Levantar todo ---
 cd "$AQUI"
-docker compose up -d --build
+paso "Compilando la página, la agenda y el agente (lo más tardado)"
+docker compose build
+[ -n "${SERVIDOR_PROGRESO:-}" ] && kill "$SERVIDOR_PROGRESO" 2>/dev/null && sleep 1
+paso "Arrancando"
+docker compose up -d
 
 # --- Primera vez: horario y datos reales en la agenda (se pueden cambiar en el panel) ---
+paso "Configurando la agenda"
 if [ ! -f "$RAIZ/.agenda-configurada" ]; then
   for _ in $(seq 1 60); do
     docker compose exec -T barberia node -e "fetch('http://localhost:3000/api/estilo-internacional/info').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))" 2>/dev/null && break
@@ -133,5 +155,5 @@ Comandos:
 Contraseñas de la agenda: $ENV (ADMIN_PASS = panel del dueño, SUPER_PASS = /super)
 Respaldos diarios de la agenda: $RAIZ/respaldos
 EOF
-echo "== $(date) Listo"
+paso "Listo"
 cat /root/LEEME.txt

@@ -19,7 +19,7 @@ USER_DATA=$(cat <<SCRIPT
 #!/bin/bash
 exec >> /var/log/estilo-instalacion.log 2>&1
 export ADMIN_PASS='$ADMIN_PASS' SUPER_PASS='$SUPER_PASS' RAMA_AGENTE='$RAMA'
-apt-get update -qq && apt-get install -y -qq git
+apt-get -o DPkg::Lock::Timeout=900 update -qq && apt-get -o DPkg::Lock::Timeout=900 install -y -qq git
 git clone -q --depth 1 -b '$RAMA' https://github.com/ggiztheking/AgenteWhatsapp.git /opt/estilo/AgenteWhatsapp
 bash /opt/estilo/AgenteWhatsapp/infra/akamai/instalar.sh
 SCRIPT
