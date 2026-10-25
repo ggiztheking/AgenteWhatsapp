@@ -1,0 +1,25 @@
+{
+	{$CADDY_OPCIONES}
+}
+
+# La página de Estilo Internacional (sitio estático).
+{$SITIO} {
+	root * /srv/sitio
+	encode gzip
+	try_files {path} {path}.html {path}/index.html
+	file_server
+	handle_errors {
+		rewrite * /404.html
+		file_server
+	}
+}
+
+# Agenda en línea y panel (barberia-saas).
+{$AGENDA} {
+	reverse_proxy barberia:3000
+}
+
+# Webhook del agente de WhatsApp.
+{$WHATSAPP} {
+	reverse_proxy agente:3000
+}

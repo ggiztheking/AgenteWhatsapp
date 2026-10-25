@@ -1,0 +1,73 @@
+# Servidor completo de Estilo Internacional en Akamai Cloud: página, agenda (barberia-saas + PostgreSQL),
+# agente de WhatsApp y Caddy con HTTPS automático. Lo levanta cloud-init.sh; ver README.md.
+# Los repositorios viven junto a este (RAIZ, por defecto /opt/estilo).
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: barberia
+      POSTGRES_USER: barberia
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U barberia -d barberia"]
+      interval: 5s
+      retries: 20
+
+  barberia:
+    build:
+      context: ${RAIZ:-/opt/estilo}/barberia-saas
+      dockerfile: ${RAIZ:-/opt/estilo}/AgenteWhatsapp/infra/akamai/barberia.Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://barberia:${POSTGRES_PASSWORD}@postgres:5432/barberia
+      PORT: "3000"
+      ADMIN_PASS: ${ADMIN_PASS:?Falta ADMIN_PASS}
+      SUPER_PASS: ${SUPER_PASS:?Falta SUPER_PASS}
+      PUBLIC_URL: https://${AGENDA}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  agente:
+    build: ${RAIZ:-/opt/estilo}/AgenteWhatsapp
+    restart: unless-stopped
+    env_file: ${RAIZ:-/opt/estilo}/agente.env
+    environment:
+      PORT: "3000"
+      BARBERIA_URL: http://barberia:3000
+      BARBERIA_SLUG: estilo-internacional
+      URL_PUBLICA: https://${WHATSAPP}
+    volumes:
+      - ${RAIZ:-/opt/estilo}/datos-agente:/app/data
+    depends_on:
+      - barberia
+
+  # Caddy sirve la página (compilada dentro de la imagen) y reenvía la agenda y el agente.
+  caddy:
+    build:
+      context: ${RAIZ:-/opt/estilo}/estilo-internacional
+      dockerfile: ${RAIZ:-/opt/estilo}/AgenteWhatsapp/infra/akamai/sitio.Dockerfile
+      args:
+        SITIO_URL: https://${SITIO}
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITIO: ${SITIO:?Falta SITIO}
+      AGENDA: ${AGENDA:?Falta AGENDA}
+      WHATSAPP: ${WHATSAPP:?Falta WHATSAPP}
+      CADDY_OPCIONES: ${CADDY_OPCIONES:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      - barberia
+      - agente
+
+volumes:
+  pgdata:
+  caddy_data:

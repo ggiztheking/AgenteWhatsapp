@@ -1,22 +1,25 @@
 #!/usr/bin/env bash
 # Configura el .env preguntando cada clave (sin que se vean en pantalla) y levanta el agente.
 # Uso, en el servidor:  bash agente/deploy/configurar.sh
+# En el servidor completo de infra/akamai (página + agenda + agente) se llama con ENV_FILE=/opt/estilo/agente.env:
+# ahí solo guarda las claves y reinicia el agente.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-[ -f .env ] || cp .env.example .env
-chmod 600 .env
+ENV=${ENV_FILE:-.env}
+[ -f "$ENV" ] || cp .env.example "$ENV"
+chmod 600 "$ENV"
 
-# Guarda KEY=valor en .env, reemplazando el valor anterior.
+# Guarda KEY=valor en el archivo de claves, reemplazando el valor anterior.
 guardar() {
   local clave=$1 valor=$2
-  grep -v "^${clave}=" .env > .env.tmp || true
-  printf '%s=%s\n' "$clave" "$valor" >> .env.tmp
-  mv .env.tmp .env
-  chmod 600 .env
+  grep -v "^${clave}=" "$ENV" > "$ENV.tmp" || true
+  printf '%s=%s\n' "$clave" "$valor" >> "$ENV.tmp"
+  mv "$ENV.tmp" "$ENV"
+  chmod 600 "$ENV"
 }
 
-actual() { grep "^$1=" .env | tail -1 | cut -d= -f2- || true; }
+actual() { grep "^$1=" "$ENV" | tail -1 | cut -d= -f2- || true; }
 
 # preguntar CLAVE "explicación" [secreta] — Enter deja el valor que ya tenía.
 preguntar() {
@@ -45,7 +48,9 @@ preguntar WHATSAPP_TOKEN "Token permanente de WhatsApp (Meta Business → Usuari
 preguntar WHATSAPP_PHONE_NUMBER_ID "Phone number ID (Meta → WhatsApp → Configuración de la API)"
 preguntar WHATSAPP_APP_SECRET "App Secret (Meta → tu app → Configuración → Básica)" secreta
 preguntar DUENO_TELEFONO "Tu celular para los avisos: 52 + 10 dígitos, sin espacios (ej. 529991234567)"
-preguntar BARBERIA_URL "Dirección de tu barberia-saas en Railway (ej. https://xxxx.up.railway.app). Enter = agenda local"
+if [ -z "${ENV_FILE:-}" ]; then
+  preguntar BARBERIA_URL "Dirección de tu barberia-saas en Railway (ej. https://xxxx.up.railway.app). Enter = agenda local"
+fi
 preguntar OPENAI_API_KEY "Opcional, para entender audios: clave de OpenAI" secreta
 preguntar MERCADOPAGO_ACCESS_TOKEN "Opcional, para cobrar anticipo: access token de Mercado Pago" secreta
 
@@ -54,18 +59,26 @@ if [ -z "$(actual WHATSAPP_VERIFY_TOKEN)" ] || [ "$(actual WHATSAPP_VERIFY_TOKEN
   guardar WHATSAPP_VERIFY_TOKEN "$(head -c 18 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 24)"
 fi
 
-bash deploy/instalar.sh
-
-dominio=$(actual DOMINIO)
-if [ -z "$(actual URL_PUBLICA)" ]; then
-  guardar URL_PUBLICA "https://$dominio"
-  docker compose up -d >/dev/null
+if [ -n "${ENV_FILE:-}" ]; then
+  # Servidor completo: el agente ya está corriendo; se reinicia para que tome las claves nuevas.
+  (cd infra/akamai && docker compose up -d agente)
+else
+  bash deploy/instalar.sh
+  if [ -z "$(actual URL_PUBLICA)" ]; then
+    guardar URL_PUBLICA "https://$(actual DOMINIO)"
+    docker compose up -d >/dev/null
+  fi
+fi
+if [ -n "${ENV_FILE:-}" ]; then
+  url="https://$(grep '^WHATSAPP=' infra/akamai/.env | tail -1 | cut -d= -f2-)"
+else
+  url=$(actual URL_PUBLICA)
 fi
 
 echo
 echo "════════════════════════════════════════════════════════════"
 echo " En Meta → WhatsApp → Configuración → Webhook pon:"
-echo "   URL de devolución de llamada:  https://$dominio/webhook"
+echo "   URL de devolución de llamada:  $url/webhook"
 echo "   Token de verificación:         $(actual WHATSAPP_VERIFY_TOKEN)"
 echo " y suscríbete al campo  messages"
 echo
@@ -75,7 +88,7 @@ for c in ANTHROPIC_API_KEY WHATSAPP_TOKEN WHATSAPP_PHONE_NUMBER_ID WHATSAPP_APP_
 done
 if [ -n "$faltan" ]; then
   echo " Faltan:$faltan"
-  echo " Cuando las tengas:  cd ~/agente && bash deploy/configurar.sh"
+  if [ -n "${ENV_FILE:-}" ]; then echo " Cuando las tengas, vuelve a correr:  claves"; else echo " Cuando las tengas:  cd ~/agente && bash deploy/configurar.sh"; fi
 else
   echo " Todo configurado. Mándale un WhatsApp al número de la barbería para probar."
 fi

@@ -133,6 +133,8 @@ Sirve cualquier hosting de Node con **disco persistente** para la carpeta `data/
 
 **En Akamai Cloud (Linode)**, en un servidor propio con HTTPS incluido y sin comprar dominio: sigue [`deploy/akamai.md`](deploy/akamai.md). Son unos minutos y un solo comando (`bash deploy/instalar.sh`).
 
+**Todo Estilo Internacional en un servidor de Akamai** (página + agenda + agente): [`infra/akamai`](infra/akamai/README.md).
+
 **En Railway**, junto a barberia-saas:
 
 1. En tu proyecto de Railway: *New → GitHub Repo →* este repositorio. Railway detecta el `Dockerfile`.
