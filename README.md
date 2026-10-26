@@ -33,8 +33,9 @@ Cliente ──► WhatsApp (Cloud API) ──► Agente (Claude) ──┬─►
 | `negocio.md` | **Lo que sabe el agente**: paquetes, extras, precios, horario, dirección y políticas. |
 | `agenda.json` | Agenda local de respaldo (solo se usa si no configuras `BARBERIA_URL`). |
 | `src/agente.ts` | El agente: instrucciones, llamada a Claude y ciclo de herramientas. |
+| `src/consentimiento.ts` | BAJA y ALTA, y el aviso de que atiende un asistente automático (primer mensaje). |
 | `src/oxion.ts` | La otra opción de IA: Oxion AI (compatible con OpenAI), traduciendo mensajes y herramientas. |
-| `src/herramientas.ts` | Acciones: `consultar_disponibilidad`, `agendar_cita`, `ver_mis_citas`, `confirmar_cita`, `reprogramar_cita`, `cancelar_cita`, `apuntar_lista_espera`, `tomar_pedido`, `derivar_a_humano`. |
+| `src/herramientas.ts` | Acciones: `consultar_disponibilidad`, `agendar_cita`, `ver_mis_citas`, `confirmar_cita`, `reprogramar_cita`, `cancelar_cita`, `apuntar_lista_espera`, `tomar_pedido`, `derivar_a_humano`, `dejar_de_enviar_mensajes`. |
 | `src/barberia.ts` | Conexión con la agenda de barberia-saas. |
 | `src/memoria.ts` | Base SQLite: conversaciones, copia de las citas, pedidos, métricas y respaldos. |
 | `src/insights.ts` | Métricas para el dueño: `/resumen` y `/agenda`. |
@@ -98,6 +99,9 @@ WhatsApp solo deja enviar mensajes libres en las 24 h después del último mensa
 - **Lugar libre:** cuando alguien cancela o cambia su cita, se les avisa a los de la lista de espera de ese día.
 
 El seguimiento y el aviso de lugar libre van por texto normal si el cliente escribió en las últimas 24 h; la plantilla solo hace falta para los demás.
+
+- **BAJA y ALTA:** si un cliente escribe *BAJA* (o "ya no me escribas", "no quiero recordatorios", *STOP*), deja de recibir todo lo automático: recordatorios, seguimientos y lugares libres. Si lo pide con otras palabras, el agente usa `dejar_de_enviar_mensajes`. Con *ALTA* vuelve a recibirlos. Si escribe, se le sigue atendiendo, y a ti te llega un aviso.
+- **Aviso de asistente:** la primera respuesta a cada cliente le dice que lo atiende un asistente automático con inteligencia artificial, que puede pedir una persona y cómo darse de baja, con el enlace a tu aviso de privacidad (`AVISO_PRIVACIDAD_URL`). En barberia-saas, activa también "Mi WhatsApp lo contesta un asistente con IA" en la pestaña Legal del panel para que tu aviso de privacidad lo diga.
 
 ## 4. Tú, el dueño
 

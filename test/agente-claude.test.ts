@@ -73,6 +73,7 @@ test("consulta, agenda con herramientas y responde al cliente", async () => {
       "cancelar_cita",
       "confirmar_cita",
       "consultar_disponibilidad",
+      "dejar_de_enviar_mensajes",
       "derivar_a_humano",
       "reprogramar_cita",
       "tomar_pedido",

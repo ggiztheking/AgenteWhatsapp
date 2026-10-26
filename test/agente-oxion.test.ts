@@ -70,6 +70,7 @@ test("sin clave de Claude usa Oxion: consulta, agenda y responde", async () => {
   respuestas = [usar("call_1", "consultar_disponibilidad", { fecha: lunes, servicio: "Corte y barba" }), texto("El lunes tengo 9:30 y 10:30. ¿Cuál te late?")];
   const r1 = await responder("5219991234567", "Ana", "hola, ¿tienes cita para corte y barba el lunes?");
   assert.match(r1, /¿Cuál te late\?/);
+  assert.match(r1, /^👋 Te atiende el asistente automático/, "la primera respuesta avisa que es un asistente");
 
   const [primero, segundo] = pedidos.splice(0);
   assert.equal(primero.auth, "Bearer cc_prueba");
@@ -87,7 +88,9 @@ test("sin clave de Claude usa Oxion: consulta, agenda y responde", async () => {
   assert.match(String(resultado.content), /Horarios libres.*09:30/);
 
   respuestas = [usar("call_2", "agendar_cita", { fecha: lunes, hora: "10:30", servicio: "Corte y barba", nombre: "Ana" }), texto("¡Listo Ana! Te espero el lunes a las 10:30 ✂️")];
-  assert.match(await responder("5219991234567", "Ana", "a las 10:30, soy Ana"), /10:30/);
+  const r2 = await responder("5219991234567", "Ana", "a las 10:30, soy Ana");
+  assert.match(r2, /10:30/);
+  assert.ok(!r2.includes("asistente automático"), "solo la primera vez");
   assert.equal(memoria.turnosDelDia(lunes).length, 1);
   // El historial queda en el formato de Claude: se puede volver a Claude sin perder la charla.
   const guardado = JSON.stringify(memoria.cargarConversacion("5219991234567").mensajes);

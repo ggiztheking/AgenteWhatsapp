@@ -63,6 +63,12 @@ db.exec(`
     creado TEXT NOT NULL,
     avisado TEXT
   );
+  -- Por cliente: cuándo pidió no recibir mensajes automáticos (BAJA) y cuándo se le dijo que lo atiende un asistente.
+  CREATE TABLE IF NOT EXISTS preferencias (
+    telefono TEXT PRIMARY KEY,
+    baja TEXT,
+    presentado TEXT
+  );
 `);
 
 // Columnas agregadas después de la primera versión: se suman a las bases que ya existen.
@@ -409,4 +415,26 @@ export function marcarAvisado(id: number) {
 /** ¿A este cliente se le ofreció un lugar liberado en esa fecha? (para contar las citas rescatadas) */
 export function fueAvisado(telefono: string, fecha: string): boolean {
   return !!db.prepare("SELECT 1 FROM lista_espera WHERE telefono = ? AND fecha = ? AND avisado IS NOT NULL").get(telefono, fecha);
+}
+
+/** BAJA: el cliente ya no recibe mensajes automáticos (recordatorios, seguimientos, lugares libres). */
+export function cambiarBaja(telefono: string, baja: boolean) {
+  db.prepare(
+    "INSERT INTO preferencias (telefono, baja) VALUES (?, ?) ON CONFLICT (telefono) DO UPDATE SET baja = excluded.baja",
+  ).run(telefono, baja ? fechaHoraLocal(new Date()) : null);
+}
+
+export function estaDeBaja(telefono: string): boolean {
+  return !!db.prepare("SELECT 1 FROM preferencias WHERE telefono = ? AND baja IS NOT NULL").get(telefono);
+}
+
+/** Si ya se le dijo a este cliente que lo atiende un asistente automático. */
+export function fuePresentado(telefono: string): boolean {
+  return !!db.prepare("SELECT 1 FROM preferencias WHERE telefono = ? AND presentado IS NOT NULL").get(telefono);
+}
+
+export function marcarPresentado(telefono: string) {
+  db.prepare(
+    "INSERT INTO preferencias (telefono, presentado) VALUES (?, ?) ON CONFLICT (telefono) DO UPDATE SET presentado = excluded.presentado",
+  ).run(telefono, fechaHoraLocal(new Date()));
 }

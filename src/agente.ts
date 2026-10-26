@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { config, infoNegocio } from "./config.js";
 import { ahoraLegible } from "./fechas.js";
 import { definicionesHerramientas, ejecutarHerramienta, type Contexto } from "./herramientas.js";
+import { presentacion } from "./consentimiento.js";
 import * as memoria from "./memoria.js";
 import * as oxion from "./oxion.js";
 
@@ -21,6 +22,8 @@ Cómo responder:
 - Si el día que quiere está lleno, ofrécele otro día u horario y también apuntarlo en la lista de espera (apuntar_lista_espera): si alguien cancela, le avisamos al momento.
 - Si contesta un recordatorio: "confirmo" → confirmar_cita; si quiere otro horario → consulta disponibilidad y usa reprogramar_cita (no canceles y vuelvas a agendar); si no puede ir → ofrécele cambiarla antes de cancelar.
 - Si el cliente pide hablar con una persona o está molesto, pásalo con una persona (derivar_a_humano).
+- Eres un asistente automático: si te preguntan si eres una persona o un bot, dilo con honestidad y ofrece pasarlo con alguien del negocio.
+- Si pide que ya no le manden mensajes o recordatorios, usa dejar_de_enviar_mensajes sin insistir.
 - Cada mensaje del cliente trae la fecha y hora actual entre corchetes; úsala para interpretar "mañana", "el sábado", etc.
 - Si al agendar te devuelven un link de anticipo, pásaselo al cliente tal cual y explícale que el anticipo asegura su cita.
 - Si el cliente manda una foto, úsala para entender lo que pide (por ejemplo, el corte que quiere). Los audios te llegan ya transcritos.
@@ -120,5 +123,9 @@ export async function responder(
   }
 
   memoria.guardarConversacion(telefono, ctx.nombreWhatsapp, mensajes);
-  return respuesta || "¿Me lo repites, por favor?";
+  respuesta ||= "¿Me lo repites, por favor?";
+  // La primera vez que se le contesta a alguien, se le dice que es un asistente automático.
+  if (memoria.fuePresentado(telefono)) return respuesta;
+  memoria.marcarPresentado(telefono);
+  return `${presentacion()}\n\n${respuesta}`;
 }

@@ -3,6 +3,7 @@ import { config } from "./config.js";
 import { responder, type Imagen } from "./agente.js";
 import { fechaLocal, sumarDias } from "./fechas.js";
 import { barberiaActiva } from "./barberia.js";
+import { MENSAJE_ALTA, MENSAJE_BAJA, pideAlta, pideBaja } from "./consentimiento.js";
 import { cancelar } from "./herramientas.js";
 import { agendaDelDia, resumen, type Periodo } from "./insights.js";
 import { calendarioActivo, transcribir, transcripcionActiva, turnoDePagoAprobado } from "./integraciones.js";
@@ -134,6 +135,16 @@ async function procesar(m: MensajeEntrante, nombre: string | null) {
   }
 
   memoria.registrarEvento("mensaje", m.from);
+
+  // BAJA / ALTA valen siempre, también si lo está atendiendo una persona.
+  if (pideBaja(texto) || pideAlta(texto)) {
+    const baja = pideBaja(texto);
+    memoria.cambiarBaja(m.from, baja);
+    memoria.agregarNota(m.from, `[El cliente escribió "${texto.trim()}": ${baja ? "ya no recibe" : "vuelve a recibir"} mensajes automáticos.]`);
+    await enviarTexto(m.from, baja ? MENSAJE_BAJA : MENSAJE_ALTA);
+    await avisarAlDueno(`${baja ? "🔕" : "🔔"} ${nombre ?? m.from} (+${m.from}) ${baja ? "pidió no recibir" : "volvió a pedir"} mensajes automáticos.`);
+    return;
+  }
 
   if (memoria.obtenerModo(m.from) === "humano") {
     const contenido = texto || `[${m.type}]`;

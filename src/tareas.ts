@@ -25,6 +25,7 @@ export async function enviarRecordatorios(ahora = new Date()) {
 
   const en = (h: number) => fechaHoraLocal(new Date(ahora.getTime() + h * 3600_000));
   for (const t of memoria.turnosParaRecordar(en(2), en(26))) {
+    if (memoria.estaDeBaja(t.telefono)) continue; // pidió BAJA
     const habitual = memoria.horaHabitual(t.telefono);
     if (habitual !== null && hora < habitual && horasHasta(t.inicio, ahora) > 14) continue;
 

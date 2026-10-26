@@ -61,8 +61,17 @@ if [ -z "$(actual WHATSAPP_VERIFY_TOKEN)" ] || [ "$(actual WHATSAPP_VERIFY_TOKEN
 fi
 
 if [ -n "${ENV_FILE:-}" ]; then
-  # Servidor completo: el agente ya está corriendo; se reinicia para que tome las claves nuevas.
-  (cd infra/akamai && docker compose up -d agente)
+  # Datos legales del SaaS de agenda (salen en /terminos y /privacidad): van en el .env del servidor, no en el agente.
+  echo
+  echo "Datos de quien ofrece el SaaS de agenda (aparecen en sus términos y su aviso de privacidad):"
+  ENV_AGENTE=$ENV
+  ENV=infra/akamai/.env
+  preguntar SAAS_TITULAR "Nombre completo o razón social del dueño del SaaS (como en tu constancia del SAT)"
+  preguntar SAAS_DOMICILIO "Domicilio para avisos legales (calle, número, colonia, Mérida, Yucatán)"
+  preguntar SOPORTE_WHATSAPP "WhatsApp de soporte del SaaS, 10 dígitos (Enter = sin soporte por WhatsApp)"
+  ENV=$ENV_AGENTE
+  # Servidor completo: el agente y la agenda ya están corriendo; se reinician para que tomen los datos nuevos.
+  (cd infra/akamai && docker compose up -d agente barberia)
 else
   bash deploy/instalar.sh
   if [ -z "$(actual URL_PUBLICA)" ]; then

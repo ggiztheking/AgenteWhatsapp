@@ -434,6 +434,19 @@ const comunes = [
       return "Conversación pasada a una persona. Avísale al cliente que en breve le responde alguien del negocio.";
     },
   }),
+
+  definir({
+    nombre: "dejar_de_enviar_mensajes",
+    descripcion:
+      "El cliente pide que ya no le manden mensajes automáticos (recordatorios, seguimientos, avisos de lugares libres). " +
+      "Úsala apenas lo pida, sin insistir ni preguntar por qué.",
+    esquema: z.strictObject({}),
+    ejecutar: async (_, ctx) => {
+      memoria.cambiarBaja(ctx.telefono, true);
+      await avisarAlDueno(`🔕 ${ctx.nombreWhatsapp ?? "Un cliente"} (+${ctx.telefono}) pidió no recibir mensajes automáticos.`);
+      return "Listo: ya no recibirá mensajes automáticos. Confírmaselo y dile que si cambia de opinión escriba ALTA; si escribe, se le sigue atendiendo.";
+    },
+  }),
 ];
 
 const herramientas = [...(barberia.barberiaActiva() ? citasBarberia : citasLocales), ...comunes];

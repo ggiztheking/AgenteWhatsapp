@@ -31,6 +31,8 @@ export const config = {
     cuentaServicio: process.env.GOOGLE_SERVICE_ACCOUNT_JSON ?? "",
   },
   duenoTelefono: process.env.DUENO_TELEFONO ?? "",
+  // Aviso de privacidad para los clientes (ej. https://.../estilo-internacional/privacidad): va en el primer mensaje.
+  avisoPrivacidad: process.env.AVISO_PRIVACIDAD_URL ?? "",
   moneda: process.env.MONEDA || "MXN",
   // claude-opus-5-5 (el más capaz), claude-sonnet-5-5 (la mitad de precio) o claude-haiku-5-5 (el más barato).
   modelo: process.env.CLAUDE_MODELO || "claude-opus-5-5",

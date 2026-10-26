@@ -27,6 +27,11 @@ services:
       ADMIN_PASS: ${ADMIN_PASS:?Falta ADMIN_PASS}
       SUPER_PASS: ${SUPER_PASS:?Falta SUPER_PASS}
       PUBLIC_URL: https://${AGENDA}
+      # Quién ofrece el SaaS (sale en /terminos y /privacidad). Se llenan con el comando `claves`.
+      SAAS_TITULAR: ${SAAS_TITULAR:-}
+      SAAS_DOMICILIO: ${SAAS_DOMICILIO:-}
+      SOPORTE_WHATSAPP: ${SOPORTE_WHATSAPP:-}
+      SOPORTE_CORREO: ${SOPORTE_CORREO:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -40,6 +45,7 @@ services:
       BARBERIA_URL: http://barberia:3000
       BARBERIA_SLUG: estilo-internacional
       URL_PUBLICA: https://${WHATSAPP}
+      AVISO_PRIVACIDAD_URL: https://${AGENDA}/estilo-internacional/privacidad
     volumes:
       - ${RAIZ:-/opt/estilo}/datos-agente:/app/data
     depends_on:

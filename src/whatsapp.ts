@@ -78,6 +78,7 @@ export async function escribirAlCliente(
   plantilla: string,
   parametros: string[],
 ): Promise<boolean> {
+  if (memoria.estaDeBaja(telefono)) return false; // pidió BAJA: nada automático
   const ultimo = memoria.ultimoMensajeDe(telefono);
   const ventanaAbierta = !!ultimo && ultimo > fechaHoraLocal(new Date(Date.now() - 23.5 * 3600_000));
   if (ventanaAbierta && (await enviarTexto(telefono, texto)).ok) return true;
