@@ -21,17 +21,16 @@ services:
       context: ${RAIZ:-/opt/estilo}/barberia-saas
       dockerfile: ${RAIZ:-/opt/estilo}/AgenteWhatsapp/infra/akamai/barberia.Dockerfile
     restart: unless-stopped
+    # Variables de la agenda (Mercado Pago, correo, titular del SaaS...): las llenan `claves` y `migrar-railway`.
+    # Las de abajo dependen de este servidor y mandan sobre las del archivo.
+    env_file: ${RAIZ:-/opt/estilo}/barberia.env
     environment:
       DATABASE_URL: postgres://barberia:${POSTGRES_PASSWORD}@postgres:5432/barberia
       PORT: "3000"
       ADMIN_PASS: ${ADMIN_PASS:?Falta ADMIN_PASS}
       SUPER_PASS: ${SUPER_PASS:?Falta SUPER_PASS}
-      PUBLIC_URL: https://${AGENDA}
-      # Quién ofrece el SaaS (sale en /terminos y /privacidad). Se llenan con el comando `claves`.
-      SAAS_TITULAR: ${SAAS_TITULAR:-}
-      SAAS_DOMICILIO: ${SAAS_DOMICILIO:-}
-      SOPORTE_WHATSAPP: ${SOPORTE_WHATSAPP:-}
-      SOPORTE_CORREO: ${SOPORTE_CORREO:-}
+      # El dominio propio en cuanto apunta aquí (dominio.sh); mientras, agenda.<ip>.sslip.io.
+      PUBLIC_URL: https://${AGENDA_PUBLICA:-${AGENDA}}
     depends_on:
       postgres:
         condition: service_healthy
@@ -45,7 +44,7 @@ services:
       BARBERIA_URL: http://barberia:3000
       BARBERIA_SLUG: estilo-internacional
       URL_PUBLICA: https://${WHATSAPP}
-      AVISO_PRIVACIDAD_URL: https://${AGENDA}/estilo-internacional/privacidad
+      AVISO_PRIVACIDAD_URL: https://${AGENDA_PUBLICA:-${AGENDA}}/estilo-internacional/privacidad
     volumes:
       - ${RAIZ:-/opt/estilo}/datos-agente:/app/data
     depends_on:

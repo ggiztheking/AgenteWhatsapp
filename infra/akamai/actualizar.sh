@@ -22,7 +22,11 @@ for r in AgenteWhatsapp barberia-saas estilo-internacional; do
     cambio="$cambio $r"
   fi
 done
-[ -z "$cambio" ] && exit 0
+if [ -z "$cambio" ]; then
+  # Sin cambios en GitHub: solo se revisa si el dominio propio ya apunta aquí (instalar.sh también lo hace).
+  bash "$RAIZ/AgenteWhatsapp/infra/akamai/dominio.sh" >> "$REGISTRO" 2>&1
+  exit 0
+fi
 
 echo "== $(date -u) cambió:$cambio" >> "$REGISTRO"
 bash "$RAIZ/AgenteWhatsapp/infra/akamai/instalar.sh" >> "$REGISTRO" 2>&1

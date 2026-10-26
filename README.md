@@ -58,10 +58,11 @@ npm run chat           # platica con el agente en la terminal, sin WhatsApp
 
 ## 2. Conectar con la agenda de la página (barberia-saas)
 
-Pon en `.env` la dirección donde está publicado barberia-saas en Railway:
+Pon en `.env` la dirección donde está publicada barberia-saas (en el servidor de Akamai de `infra/akamai` ya viene
+configurada):
 
 ```
-BARBERIA_URL=https://tu-app.up.railway.app
+BARBERIA_URL=https://agendabarberias.xyz
 BARBERIA_SLUG=estilo-internacional
 ```
 
@@ -150,7 +151,7 @@ Sirve cualquier hosting de Node con **disco persistente** para la carpeta `data/
 Cada noche se guarda una copia de la base en `data/respaldos/` (se conservan las últimas 7).
 
 Lista para salir:
-- [ ] `BARBERIA_URL` apuntando a tu barberia-saas en Railway
+- [ ] `BARBERIA_URL` apuntando a tu barberia-saas
 - [ ] Token permanente de WhatsApp y `WHATSAPP_APP_SECRET`
 - [ ] Hosting con volumen en `/app/data` y webhook configurado en Meta
 - [ ] Plantillas de aviso y recordatorio aprobadas

@@ -74,6 +74,8 @@ aleatorio() { head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c "$
 # Qué ve la gente en la dirección principal: "agenda" (la página de Estilo Internacional de barberia-saas,
 # con reservas directas) o "sitio" (la página del repositorio estilo-internacional). Se cambia en este .env.
 [ -n "$(valor PAGINA_PRINCIPAL)" ] || fijar PAGINA_PRINCIPAL agenda
+# Dominio propio de la agenda: se activa solo cuando ya apunta a este servidor (dominio.sh). Se cambia en este .env.
+[ -n "$(valor DOMINIO_AGENDA)" ] || fijar DOMINIO_AGENDA agendabarberias.xyz
 fijar RAIZ "$RAIZ"
 fijar SITIO "$BASE"
 fijar AGENDA "agenda.$BASE"
@@ -110,6 +112,8 @@ TZ=America/Merida
 EOF
 fi
 chmod 600 "$AGENTE_ENV"
+# Variables de la agenda (Mercado Pago, correo, titular del SaaS...): las llenan `claves` y `migrar-railway`.
+touch "$RAIZ/barberia.env" && chmod 600 "$RAIZ/barberia.env"
 
 cat > /usr/local/bin/claves <<EOF
 #!/usr/bin/env bash
@@ -117,6 +121,12 @@ cat > /usr/local/bin/claves <<EOF
 ENV_FILE=$AGENTE_ENV exec bash $RAIZ/AgenteWhatsapp/deploy/configurar.sh
 EOF
 chmod +x /usr/local/bin/claves
+cat > /usr/local/bin/migrar-railway <<EOF
+#!/usr/bin/env bash
+# Pasa la agenda de Railway (base de datos y variables) a este servidor, con respaldo previo.
+exec bash $AQUI/migrar-railway.sh "\$@"
+EOF
+chmod +x /usr/local/bin/migrar-railway
 
 # --- Firewall: solo SSH y web ---
 ufw allow OpenSSH >/dev/null && ufw allow 80/tcp >/dev/null && ufw allow 443/tcp >/dev/null && ufw --force enable >/dev/null
@@ -158,6 +168,7 @@ done <<< "$APPS"
 docker compose up -d --remove-orphans
 # Caddy toma los subdominios de apps nuevas sin reiniciarse.
 docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1 || true
+bash "$AQUI/dominio.sh" || true
 
 # --- Primera vez: horario y datos reales en la agenda (se pueden cambiar en el panel) ---
 paso "Configurando la agenda"
@@ -195,11 +206,13 @@ cat > /root/LEEME.txt <<EOF
 Estilo Internacional en Akamai Cloud
   Página:          https://$BASE
   Agenda y panel:  https://agenda.$BASE/estilo-internacional   (panel: /estilo-internacional/admin)
+  Dominio propio:  https://$(valor DOMINIO_AGENDA) en cuanto apunte a $IP (registro A, también para www)
   Webhook Meta:    https://whatsapp.$BASE/webhook
   Token de verificación para Meta: $(grep '^WHATSAPP_VERIFY_TOKEN=' "$AGENTE_ENV" | cut -d= -f2-)
 
 Comandos:
-  claves                         pide las claves del agente de WhatsApp y lo reinicia
+  claves                         pide las claves del agente de WhatsApp y los datos del SaaS, y los reinicia
+  migrar-railway                 pasa la agenda de Railway (base y variables) a este servidor, con respaldo
   cd $AQUI && docker compose ps            ver qué está corriendo
   cd $AQUI && docker compose logs -f agente   ver qué hace el agente
   bash $AQUI/instalar.sh         actualizar todo a mano (solo se hace cada 2 min si algo cambió en GitHub;

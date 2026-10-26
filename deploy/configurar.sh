@@ -61,11 +61,12 @@ if [ -z "$(actual WHATSAPP_VERIFY_TOKEN)" ] || [ "$(actual WHATSAPP_VERIFY_TOKEN
 fi
 
 if [ -n "${ENV_FILE:-}" ]; then
-  # Datos legales del SaaS de agenda (salen en /terminos y /privacidad): van en el .env del servidor, no en el agente.
+  # Datos legales del SaaS de agenda (salen en /terminos y /privacidad): van en las variables de la agenda.
   echo
   echo "Datos de quien ofrece el SaaS de agenda (aparecen en sus términos y su aviso de privacidad):"
   ENV_AGENTE=$ENV
-  ENV=infra/akamai/.env
+  ENV=$(dirname "$ENV_FILE")/barberia.env
+  touch "$ENV" && chmod 600 "$ENV"
   preguntar SAAS_TITULAR "Nombre completo o razón social del dueño del SaaS (como en tu constancia del SAT)"
   preguntar SAAS_DOMICILIO "Domicilio para avisos legales (calle, número, colonia, Mérida, Yucatán)"
   preguntar SOPORTE_WHATSAPP "WhatsApp de soporte del SaaS, 10 dígitos (Enter = sin soporte por WhatsApp)"
