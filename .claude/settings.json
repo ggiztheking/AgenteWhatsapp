@@ -1,0 +1,13 @@
+{
+  "extraKnownMarketplaces": {
+    "neuromapa": {
+      "source": {
+        "source": "github",
+        "repo": "lumiel777/neuromapa"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "neuromapa@neuromapa": true
+  }
+}
