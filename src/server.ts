@@ -8,6 +8,7 @@ import { cancelar } from "./herramientas.js";
 import { agendaDelDia, resumen, type Periodo } from "./insights.js";
 import { calendarioActivo, transcribir, transcripcionActiva, turnoDePagoAprobado } from "./integraciones.js";
 import * as memoria from "./memoria.js";
+import * as sent from "./sent.js";
 import { iniciarTareas } from "./tareas.js";
 import {
   avisarAlDueno,
@@ -17,6 +18,8 @@ import {
   firmaValida,
   marcarLeido,
   mismoNumero,
+  numeroParaEnviar,
+  whatsappActivo,
 } from "./whatsapp.js";
 
 const app = express();
@@ -45,6 +48,8 @@ type MensajeEntrante = {
   // Botones de respuesta rápida de una plantilla ("Confirmo") y respuestas a mensajes interactivos.
   button?: { text?: string; payload?: string };
   interactive?: { button_reply?: { title?: string }; list_reply?: { title?: string } };
+  // Con Sent, las fotos y audios llegan como direcciones para bajarlos.
+  medios?: { url: string; tipo: string }[];
 };
 type Contacto = { wa_id: string; profile?: { name?: string } };
 
@@ -68,6 +73,23 @@ app.post("/webhook", (req, res) => {
       }
     }
   }
+});
+
+// Con WHATSAPP_PROVEEDOR=sent, Sent avisa aquí cada mensaje que llega (evento message.received, firmado).
+app.post("/sent", (req, res) => {
+  const cuerpoCrudo = (req as express.Request & { cuerpoCrudo?: Buffer }).cuerpoCrudo;
+  if (!cuerpoCrudo || !sent.firmaValida(cuerpoCrudo, (nombre) => req.header(nombre))) {
+    res.sendStatus(401);
+    return;
+  }
+  // Responder rápido: si tarda, Sent lo vuelve a mandar.
+  res.sendStatus(200);
+  const m = sent.mensajeRecibido(req.body);
+  if (!m || !memoria.marcarProcesado(`sent:${m.id}`)) return;
+  memoria.marcarEntrada(numeroParaEnviar(m.from));
+  const tipo = m.medios.some((x) => x.tipo.startsWith("image/")) ? "image" : m.medios.some((x) => x.tipo.startsWith("audio/")) ? "audio" : "text";
+  const mensaje: MensajeEntrante = { id: m.id, from: m.from, type: tipo, text: { body: m.texto }, medios: m.medios };
+  encolar(m.from, () => procesar(mensaje, null));
 });
 
 // Mercado Pago avisa aquí cuando se paga un anticipo. Se consulta el pago a la API antes de creer nada.
@@ -102,6 +124,21 @@ function encolar(telefono: string, tarea: () => Promise<void>) {
 
 /** Saca el texto (y la imagen, si hay) de un mensaje. Los audios se transcriben si está configurado. */
 async function leerMensaje(m: MensajeEntrante): Promise<{ texto: string; imagen?: Imagen }> {
+  if (m.medios?.length) {
+    const texto = m.text?.body ?? "";
+    try {
+      const foto = m.medios.find((x) => x.tipo.startsWith("image/"));
+      if (foto) return { texto, imagen: await sent.descargar(foto.url, foto.tipo) };
+      const audio = m.medios.find((x) => x.tipo.startsWith("audio/"));
+      if (audio && transcripcionActiva()) {
+        const { datos, tipo } = await sent.descargar(audio.url, audio.tipo);
+        return { texto: `(audio transcripto) ${await transcribir(datos, tipo)}` };
+      }
+    } catch (e) {
+      console.error(`Error leyendo el archivo de ${m.from}:`, e);
+    }
+    return { texto };
+  }
   if (m.type === "text") return { texto: m.text?.body ?? "" };
   if (m.type === "button") return { texto: m.button?.text ?? m.button?.payload ?? "" };
   if (m.type === "interactive") {
@@ -241,11 +278,14 @@ async function comandoDelDueno(texto: string) {
   }
 }
 
-if (!config.whatsapp.appSecret) {
+if (config.whatsappProveedor === "sent") {
+  if (!config.sent.secretoWebhook) console.warn("⚠️  SENT_WEBHOOK_SECRET vacío: /sent rechaza todos los avisos hasta que lo pongas.");
+} else if (!config.whatsapp.appSecret) {
   console.warn("⚠️  WHATSAPP_APP_SECRET vacío: el webhook acepta pedidos sin verificar la firma de Meta.");
 }
 console.log(
   `IA: ${config.proveedor === "oxion" ? `Oxion AI (${config.oxion.modelo})` : `Claude (${config.modelo})`}\n` +
+    `WhatsApp: ${config.whatsappProveedor === "sent" ? "Sent (webhook en /sent)" : "Meta Cloud API (webhook en /webhook)"}${whatsappActivo() ? "" : " — sin clave: solo en pantalla"}\n` +
     `Agenda: ${barberiaActiva() ? `barberia-saas (${config.barberia.url}/${config.barberia.slug})` : "local (agenda.json)"}\n` +
     `Integraciones: Google Calendar ${calendarioActivo() ? "✅" : "—"} · Mercado Pago ${config.mercadoPago.accessToken ? "✅" : "—"}` +
     ` · Audios ${transcripcionActiva() ? "✅" : "—"} · Recordatorios ${config.whatsapp.plantillaRecordatorio ? "✅" : "—"}`,

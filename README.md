@@ -42,6 +42,7 @@ Cliente ──► WhatsApp (Cloud API) ──► Agente (Claude) ──┬─►
 | `src/tareas.ts` | Lo que corre solo: recordatorios, resumen diario y respaldo. |
 | `src/integraciones.ts` | Google Calendar, Mercado Pago y transcripción de audios (opcionales). |
 | `src/whatsapp.ts` | Envío de mensajes y plantillas, descarga de fotos y audios. |
+| `src/sent.ts` | WhatsApp por Sent (app.sent.dm): envíos, firma de sus avisos (`/sent`) y lectura de los mensajes que llegan. |
 | `docker-compose.yml`, `deploy/` | Servidor propio con HTTPS (Akamai Cloud / Linode). |
 | `src/server.ts` | Webhooks de WhatsApp y Mercado Pago, y comandos del dueño. |
 
@@ -82,6 +83,15 @@ Para probar contra un barberia-saas de prueba (**nunca el de producción**): `BA
 6. Mándale un mensaje al número desde tu celular.
 
 Los celulares de México llegan como `521…` y el agente les responde como `52…`, que es el formato que pide Meta. No tienes que hacer nada.
+
+**O por Sent ([app.sent.dm](https://app.sent.dm)), sin la app de Meta:**
+
+1. En Sent conecta WhatsApp (*Channels*: autorizas con Meta y eliges el número). Sent pide también un remitente de SMS en el mismo perfil.
+2. Copia tu API key a `SENT_API_KEY` y deja vacío `WHATSAPP_TOKEN` (o pon `WHATSAPP_PROVEEDOR=sent`).
+3. En *Webhooks → Add Webhook* pon `https://TU-URL/sent`, elige el evento **message** (received) y copia su secreto (el ojo) a `SENT_WEBHOOK_SECRET`. Sin secreto, `/sent` rechaza todo.
+4. Las plantillas se crean y aprueban en Sent; en `WHATSAPP_PLANTILLA_*` va su **id**. El agente llena sus variables en orden (`{{1}}`, `{{2}}`… de la tabla de abajo).
+
+Con Sent no hay palomitas azules ni "escribiendo…", y la ventana de 24 h la calcula el agente con el último mensaje de cada número. Las fotos y audios llegan igual.
 
 ### Plantillas (recomendado)
 

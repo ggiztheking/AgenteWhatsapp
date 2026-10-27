@@ -18,6 +18,16 @@ export const config = {
     plantillaLugarLibre: process.env.WHATSAPP_PLANTILLA_LUGAR_LIBRE ?? "",
     idiomaPlantillas: process.env.WHATSAPP_IDIOMA_PLANTILLAS || "es_MX",
   },
+  // Por dónde van los WhatsApp: "meta" (la Cloud API directa) o "sent" (app.sent.dm). Sin WHATSAPP_PROVEEDOR:
+  // Sent si hay SENT_API_KEY y no hay token de Meta. Con Sent, las WHATSAPP_PLANTILLA_* son los id de sus plantillas.
+  whatsappProveedor: (process.env.WHATSAPP_PROVEEDOR ||
+    (process.env.SENT_API_KEY && !process.env.WHATSAPP_TOKEN ? "sent" : "meta")) as "meta" | "sent",
+  sent: {
+    apiKey: process.env.SENT_API_KEY ?? "",
+    // Secreto del webhook (Dashboard → Webhooks → el ojo), para comprobar que los avisos vienen de Sent.
+    secretoWebhook: process.env.SENT_WEBHOOK_SECRET ?? "",
+    url: (process.env.SENT_API_URL || "https://api.sent.dm/v3").replace(/\/$/, ""),
+  },
   // URL pública del servidor (ej. https://mi-agente.up.railway.app), para los webhooks de Mercado Pago.
   urlPublica: (process.env.URL_PUBLICA ?? "").replace(/\/$/, ""),
   openaiApiKey: process.env.OPENAI_API_KEY ?? "",

@@ -45,12 +45,19 @@ echo "Las claves no se ven mientras las escribes. Si todavía no tienes alguna, 
 preguntar ANTHROPIC_API_KEY "Clave de Claude (console.anthropic.com → API Keys, empieza con sk-ant-)" secreta
 preguntar CLAUDE_MODELO "Modelo: claude-opus-5-5 (el mejor), claude-sonnet-5-5 (mitad de precio) o claude-haiku-5-5 (el más barato)"
 preguntar OXION_API_KEY "O, en vez de la clave de Claude: clave de Oxion AI (oxionai.com → Dashboard → API Keys, empieza con cc_). Si están las dos, se usa Claude" secreta
-preguntar WHATSAPP_TOKEN "Token permanente de WhatsApp (Meta Business → Usuarios del sistema)" secreta
-preguntar WHATSAPP_PHONE_NUMBER_ID "Phone number ID (Meta → WhatsApp → Configuración de la API)"
-preguntar WHATSAPP_APP_SECRET "App Secret (Meta → tu app → Configuración → Básica)" secreta
+echo
+echo "WhatsApp: por Sent (app.sent.dm) o directo con Meta. Llena uno de los dos y deja vacío el otro."
+preguntar SENT_API_KEY "Sent: tu API key (app.sent.dm → API Keys). Enter vacío = usar Meta directo" secreta
+if [ -n "$(actual SENT_API_KEY)" ]; then
+  preguntar SENT_WEBHOOK_SECRET "Sent: secreto del webhook (Dashboard → Webhooks → tu webhook → el ojo; empieza con whsec_)" secreta
+else
+  preguntar WHATSAPP_TOKEN "Token permanente de WhatsApp (Meta Business → Usuarios del sistema)" secreta
+  preguntar WHATSAPP_PHONE_NUMBER_ID "Phone number ID (Meta → WhatsApp → Configuración de la API)"
+  preguntar WHATSAPP_APP_SECRET "App Secret (Meta → tu app → Configuración → Básica)" secreta
+fi
 preguntar DUENO_TELEFONO "Tu celular para los avisos: 52 + 10 dígitos, sin espacios (ej. 529991234567)"
 if [ -z "${ENV_FILE:-}" ]; then
-  preguntar BARBERIA_URL "Dirección de tu barberia-saas en Railway (ej. https://xxxx.up.railway.app). Enter = agenda local"
+  preguntar BARBERIA_URL "Dirección de tu barberia-saas (ej. https://agendabarberias.xyz). Enter = agenda local"
 fi
 preguntar OPENAI_API_KEY "Opcional, para entender audios: clave de OpenAI" secreta
 preguntar MERCADOPAGO_ACCESS_TOKEN "Opcional, para cobrar anticipo: access token de Mercado Pago" secreta
@@ -88,13 +95,22 @@ fi
 
 echo
 echo "════════════════════════════════════════════════════════════"
-echo " En Meta → WhatsApp → Configuración → Webhook pon:"
-echo "   URL de devolución de llamada:  $url/webhook"
-echo "   Token de verificación:         $(actual WHATSAPP_VERIFY_TOKEN)"
-echo " y suscríbete al campo  messages"
+if [ -n "$(actual SENT_API_KEY)" ]; then
+  echo " En Sent → Webhooks → Add Webhook pon:"
+  echo "   Endpoint URL:  $url/sent"
+  echo "   Eventos:       message (con received)"
+  echo " y copia su secreto (el ojo) cuando corras de nuevo este comando."
+  necesarias="SENT_API_KEY SENT_WEBHOOK_SECRET DUENO_TELEFONO"
+else
+  echo " En Meta → WhatsApp → Configuración → Webhook pon:"
+  echo "   URL de devolución de llamada:  $url/webhook"
+  echo "   Token de verificación:         $(actual WHATSAPP_VERIFY_TOKEN)"
+  echo " y suscríbete al campo  messages"
+  necesarias="WHATSAPP_TOKEN WHATSAPP_PHONE_NUMBER_ID WHATSAPP_APP_SECRET DUENO_TELEFONO"
+fi
 echo
 faltan=""
-for c in WHATSAPP_TOKEN WHATSAPP_PHONE_NUMBER_ID WHATSAPP_APP_SECRET DUENO_TELEFONO; do
+for c in $necesarias; do
   [ -n "$(actual $c)" ] || faltan="$faltan $c"
 done
 # La IA puede ser Claude u Oxion: basta una de las dos claves.

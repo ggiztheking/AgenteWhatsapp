@@ -88,6 +88,10 @@ for (const [columna, tipo] of [
 ]) {
   if (!columnasTurnos.includes(columna)) db.exec(`ALTER TABLE turnos ADD COLUMN ${columna} ${tipo}`);
 }
+// Último mensaje que llegó de cada número (clientes y dueño), en milisegundos: con Sent, la ventana de 24 h de
+// WhatsApp se calcula aquí, porque Sent acepta el envío y avisa la falla después.
+const columnasPreferencias = (db.prepare("PRAGMA table_info(preferencias)").all() as { name: string }[]).map((c) => c.name);
+if (!columnasPreferencias.includes("entrada")) db.exec("ALTER TABLE preferencias ADD COLUMN entrada INTEGER");
 
 type FilaConversacion = { nombre: string | null; mensajes: string; modo: Modo; actualizado: number };
 
@@ -431,6 +435,18 @@ export function estaDeBaja(telefono: string): boolean {
 /** Si ya se le dijo a este cliente que lo atiende un asistente automático. */
 export function fuePresentado(telefono: string): boolean {
   return !!db.prepare("SELECT 1 FROM preferencias WHERE telefono = ? AND presentado IS NOT NULL").get(telefono);
+}
+
+export function marcarEntrada(telefono: string, cuando = Date.now()) {
+  db.prepare(
+    "INSERT INTO preferencias (telefono, entrada) VALUES (?, ?) ON CONFLICT (telefono) DO UPDATE SET entrada = excluded.entrada",
+  ).run(telefono, cuando);
+}
+
+/** Si este número escribió en las últimas 24 h (y por lo tanto se le puede mandar texto libre por WhatsApp). */
+export function ventanaAbierta(telefono: string, ahora = Date.now()): boolean {
+  const fila = db.prepare("SELECT entrada FROM preferencias WHERE telefono = ?").get(telefono) as { entrada: number | null } | undefined;
+  return !!fila?.entrada && ahora - fila.entrada < 23.5 * 3600_000;
 }
 
 export function marcarPresentado(telefono: string) {

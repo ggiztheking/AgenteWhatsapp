@@ -2,12 +2,17 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { config } from "./config.js";
 import { fechaHoraLocal } from "./fechas.js";
 import * as memoria from "./memoria.js";
+import * as sent from "./sent.js";
 
 const API = "https://graph.facebook.com/v23.0";
 // Error de Meta cuando pasaron más de 24 h desde el último mensaje de esa persona.
 const FUERA_DE_VENTANA = 131047;
 
-type Resultado = { ok: true } | { ok: false; codigo?: number };
+type Resultado = { ok: true } | { ok: false; codigo?: number | string };
+const porSent = () => config.whatsappProveedor === "sent";
+
+/** Si hay con qué mandar WhatsApp (token de Meta o clave de Sent); si no, los envíos solo se muestran en pantalla. */
+export const whatsappActivo = () => (porSent() ? !!config.sent.apiKey : !!config.whatsapp.token);
 
 /**
  * Los celulares de México llegan en el webhook como 521 + 10 dígitos, pero la Cloud API espera 52 + 10 dígitos
@@ -42,19 +47,25 @@ async function enviar(para: string, cuerpo: Record<string, unknown>): Promise<Re
 
 /** Envía un mensaje de texto. Sin WHATSAPP_TOKEN (modo consola) solo lo muestra en pantalla. */
 export async function enviarTexto(para: string, texto: string): Promise<Resultado> {
-  if (!config.whatsapp.token) {
+  if (!whatsappActivo()) {
     console.log(`\n[WhatsApp → ${para}]\n${texto}\n`);
     return { ok: true };
+  }
+  if (porSent()) {
+    // Sent acepta el envío y avisa la falla después: fuera de las 24 h se responde aquí lo mismo que diría Meta.
+    if (!memoria.ventanaAbierta(numeroParaEnviar(para))) return { ok: false, codigo: FUERA_DE_VENTANA };
+    return sent.enviarTexto(para, texto);
   }
   return enviar(para, { type: "text", text: { body: texto.slice(0, 4096) } });
 }
 
 /** Envía una plantilla aprobada; los parámetros reemplazan {{1}}, {{2}}, ... del cuerpo. */
 export async function enviarPlantilla(para: string, nombre: string, parametros: string[] = []): Promise<Resultado> {
-  if (!config.whatsapp.token) {
+  if (!whatsappActivo()) {
     console.log(`\n[Plantilla ${nombre} → ${para}] ${parametros.join(" | ")}\n`);
     return { ok: true };
   }
+  if (porSent()) return sent.enviarPlantilla(para, nombre, parametros); // con Sent, "nombre" es el id de la plantilla
   return enviar(para, {
     type: "template",
     template: {
@@ -87,7 +98,7 @@ export async function escribirAlCliente(
 
 /** Marca el mensaje como leído (tildes azules) y muestra "escribiendo..." mientras el agente piensa. */
 export async function marcarLeido(idMensaje: string): Promise<void> {
-  if (!config.whatsapp.token) return;
+  if (!config.whatsapp.token || porSent()) return; // Sent no tiene leído ni "escribiendo..."
   const res = await fetch(`${API}/${config.whatsapp.phoneNumberId}/messages`, {
     method: "POST",
     headers: {
