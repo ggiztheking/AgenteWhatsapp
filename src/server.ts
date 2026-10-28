@@ -9,6 +9,7 @@ import { agendaDelDia, resumen, type Periodo } from "./insights.js";
 import { calendarioActivo, transcribir, transcripcionActiva, turnoDePagoAprobado } from "./integraciones.js";
 import * as memoria from "./memoria.js";
 import * as sent from "./sent.js";
+import * as web from "./whatsapp-web.js";
 import { iniciarTareas } from "./tareas.js";
 import {
   avisarAlDueno,
@@ -50,6 +51,8 @@ type MensajeEntrante = {
   interactive?: { button_reply?: { title?: string }; list_reply?: { title?: string } };
   // Con Sent, las fotos y audios llegan como direcciones para bajarlos.
   medios?: { url: string; tipo: string }[];
+  // Con el número vinculado por QR, el mensaje original (para bajar la foto o el audio).
+  web?: web.MensajeWeb["original"];
 };
 type Contacto = { wa_id: string; profile?: { name?: string } };
 
@@ -92,6 +95,12 @@ app.post("/sent", (req, res) => {
   encolar(m.from, () => procesar(mensaje, null));
 });
 
+// Con WHATSAPP_PROVEEDOR=web: página para vincular el número escaneando el QR (/vincular?clave=WHATSAPP_VERIFY_TOKEN).
+app.get("/vincular", async (req, res) => {
+  const { status, html } = await web.paginaVincular(req.query.clave);
+  res.status(status).set("Cache-Control", "no-store").type("html").send(html);
+});
+
 // Mercado Pago avisa aquí cuando se paga un anticipo. Se consulta el pago a la API antes de creer nada.
 app.post("/mercadopago", (req, res) => {
   res.sendStatus(200);
@@ -124,6 +133,19 @@ function encolar(telefono: string, tarea: () => Promise<void>) {
 
 /** Saca el texto (y la imagen, si hay) de un mensaje. Los audios se transcriben si está configurado. */
 async function leerMensaje(m: MensajeEntrante): Promise<{ texto: string; imagen?: Imagen }> {
+  if (m.web) {
+    const texto = m.text?.body ?? "";
+    try {
+      if (m.type === "image") return { texto, imagen: await web.descargarWeb(m.web) };
+      if (m.type === "audio" && transcripcionActiva()) {
+        const { datos, tipo } = await web.descargarWeb(m.web);
+        return { texto: `(audio transcripto) ${await transcribir(datos, tipo)}` };
+      }
+    } catch (e) {
+      console.error(`Error leyendo el archivo de ${m.from}:`, e);
+    }
+    return { texto };
+  }
   if (m.medios?.length) {
     const texto = m.text?.body ?? "";
     try {
@@ -278,17 +300,26 @@ async function comandoDelDueno(texto: string) {
   }
 }
 
-if (config.whatsappProveedor === "sent") {
+if (config.whatsappProveedor === "web") {
+  if (!config.whatsapp.verifyToken) console.warn("⚠️  WHATSAPP_VERIFY_TOKEN vacío: /vincular no se puede abrir hasta que lo pongas.");
+  web
+    .iniciar((m) => {
+      if (!memoria.marcarProcesado(`web:${m.id}`)) return;
+      const mensaje: MensajeEntrante = { id: m.id, from: m.from, type: m.type, text: { body: m.texto }, web: m.original };
+      encolar(m.from, () => procesar(mensaje, m.nombre));
+    })
+    .catch((e) => console.error("No se pudo iniciar WhatsApp:", e));
+} else if (config.whatsappProveedor === "sent") {
   if (!config.sent.secretoWebhook) console.warn("⚠️  SENT_WEBHOOK_SECRET vacío: /sent rechaza todos los avisos hasta que lo pongas.");
 } else if (!config.whatsapp.appSecret) {
   console.warn("⚠️  WHATSAPP_APP_SECRET vacío: el webhook acepta pedidos sin verificar la firma de Meta.");
 }
 console.log(
   `IA: ${config.proveedor === "oxion" ? `Oxion AI (${config.oxion.modelo})` : `Claude (${config.modelo})`}\n` +
-    `WhatsApp: ${config.whatsappProveedor === "sent" ? "Sent (webhook en /sent)" : "Meta Cloud API (webhook en /webhook)"}${whatsappActivo() ? "" : " — sin clave: solo en pantalla"}\n` +
+    `WhatsApp: ${config.whatsappProveedor === "web" ? "número vinculado por QR (/vincular)" : config.whatsappProveedor === "sent" ? "Sent (webhook en /sent)" : "Meta Cloud API (webhook en /webhook)"}${whatsappActivo() ? "" : " — sin clave: solo en pantalla"}\n` +
     `Agenda: ${barberiaActiva() ? `barberia-saas (${config.barberia.url}/${config.barberia.slug})` : "local (agenda.json)"}\n` +
     `Integraciones: Google Calendar ${calendarioActivo() ? "✅" : "—"} · Mercado Pago ${config.mercadoPago.accessToken ? "✅" : "—"}` +
-    ` · Audios ${transcripcionActiva() ? "✅" : "—"} · Recordatorios ${config.whatsapp.plantillaRecordatorio ? "✅" : "—"}`,
+    ` · Audios ${transcripcionActiva() ? "✅" : "—"} · Recordatorios ${config.whatsapp.plantillaRecordatorio || config.whatsappProveedor === "web" ? "✅" : "—"}`,
 );
 iniciarTareas();
 

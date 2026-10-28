@@ -3,7 +3,7 @@ import { config } from "./config.js";
 import { aFecha, diaDeLaSemana, fechaHoraLocal, sumarDias } from "./fechas.js";
 import { agendaDelDia, resumen } from "./insights.js";
 import * as memoria from "./memoria.js";
-import { avisarAlDueno, enviarPlantilla, escribirAlCliente } from "./whatsapp.js";
+import { avisarAlDueno, enviarPlantilla, escribirAlCliente, sinPlantillas } from "./whatsapp.js";
 
 // Nunca se le escribe a un cliente de noche.
 const HORARIO_DE_ENVIO = { desde: 9, hasta: 21 };
@@ -21,7 +21,7 @@ const cuando = (inicio: string) => {
 export async function enviarRecordatorios(ahora = new Date()) {
   const plantilla = config.whatsapp.plantillaRecordatorio;
   const hora = ahora.getHours();
-  if (!plantilla || hora < HORARIO_DE_ENVIO.desde || hora >= HORARIO_DE_ENVIO.hasta) return;
+  if ((!plantilla && !sinPlantillas()) || hora < HORARIO_DE_ENVIO.desde || hora >= HORARIO_DE_ENVIO.hasta) return;
 
   const en = (h: number) => fechaHoraLocal(new Date(ahora.getTime() + h * 3600_000));
   for (const t of memoria.turnosParaRecordar(en(2), en(26))) {
@@ -32,8 +32,17 @@ export async function enviarRecordatorios(ahora = new Date()) {
     // Se marca antes de enviar para no repetirlo si el envío falla una y otra vez.
     memoria.actualizarTurno(t.id, "recordado", 1);
     memoria.actualizarTurno(t.id, "recordado_en", fechaHoraLocal(ahora));
-    const r = await enviarPlantilla(t.telefono, plantilla, [t.nombre, t.servicio, cuando(t.inicio)]);
-    if (r.ok) {
+    // Con el número vinculado por QR no hay plantillas: el recordatorio va como texto.
+    const enviado = sinPlantillas()
+      ? await escribirAlCliente(
+          t.telefono,
+          `Hola ${t.nombre.split(" ")[0]} 👋 Te recuerdo tu cita de ${t.servicio} el ${cuando(t.inicio)}. ` +
+            "¿Me confirmas? Respóndeme *Confirmo* o dime si prefieres otro horario.",
+          "",
+          [],
+        )
+      : (await enviarPlantilla(t.telefono, plantilla, [t.nombre, t.servicio, cuando(t.inicio)])).ok;
+    if (enviado) {
       memoria.agregarNota(
         t.telefono,
         `[Recordatorio automático enviado de la cita #${t.id}: ${t.servicio}${t.barbero ? ` con ${t.barbero}` : ""}, ${cuando(t.inicio)}. ` +

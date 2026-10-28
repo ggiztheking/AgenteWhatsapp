@@ -42,6 +42,7 @@ Cliente ──► WhatsApp (Cloud API) ──► Agente (Claude) ──┬─►
 | `src/tareas.ts` | Lo que corre solo: recordatorios, resumen diario y respaldo. |
 | `src/integraciones.ts` | Google Calendar, Mercado Pago y transcripción de audios (opcionales). |
 | `src/whatsapp.ts` | Envío de mensajes y plantillas, descarga de fotos y audios. |
+| `src/whatsapp-web.ts` | WhatsApp vinculado por QR en el servidor (Baileys), sin servicios externos: conexión, mensajes y la página `/vincular`. |
 | `src/sent.ts` | WhatsApp por Sent (app.sent.dm): envíos, firma de sus avisos (`/sent`) y lectura de los mensajes que llegan. |
 | `docker-compose.yml`, `deploy/` | Servidor propio con HTTPS (Akamai Cloud / Linode). |
 | `src/server.ts` | Webhooks de WhatsApp y Mercado Pago, y comandos del dueño. |
@@ -92,6 +93,14 @@ Los celulares de México llegan como `521…` y el agente les responde como `52�
 4. Las plantillas se crean y aprueban en Sent; en `WHATSAPP_PLANTILLA_*` va su **id**. El agente llena sus variables en orden (`{{1}}`, `{{2}}`… de la tabla de abajo).
 
 Con Sent no hay palomitas azules ni "escribiendo…", y la ventana de 24 h la calcula el agente con el último mensaje de cada número. Las fotos y audios llegan igual.
+
+**O sin servicios externos (número vinculado por QR):** con `WHATSAPP_PROVEEDOR=web` el servidor se vincula al número de la barbería como si fuera WhatsApp Web (librería abierta Baileys, `src/whatsapp-web.ts`). No hay claves, plantillas ni ventana de 24 h, y la sesión se guarda en `data/whatsapp-web/`.
+
+1. Pon `WHATSAPP_PROVEEDOR=web` (en el servidor: `claves` → `web`) y un `WHATSAPP_VERIFY_TOKEN`.
+2. Abre `https://TU-URL/vincular?clave=<WHATSAPP_VERIFY_TOKEN>` en la compu.
+3. En el celular de la barbería: *WhatsApp → Dispositivos vinculados → Vincular un dispositivo* y escanea el QR.
+
+⚠️ No es un método oficial de WhatsApp: si detecta automatización puede bloquear el número. Para bajar el riesgo, el agente muestra "escribiendo…" y espera un momento antes de cada respuesta, y los mensajes automáticos (recordatorios, lista de espera) solo van a quien ya escribió antes y con un tope por hora (`WHATSAPP_WEB_TOPE_HORA`, 30 por defecto). Si el celular desvincula el servidor, `/vincular` vuelve a mostrar un QR.
 
 ### Plantillas (recomendado)
 

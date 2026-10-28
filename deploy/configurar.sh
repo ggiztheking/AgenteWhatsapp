@@ -46,9 +46,15 @@ preguntar ANTHROPIC_API_KEY "Clave de Claude (console.anthropic.com → API Keys
 preguntar CLAUDE_MODELO "Modelo: claude-opus-5-5 (el mejor), claude-sonnet-5-5 (mitad de precio) o claude-haiku-5-5 (el más barato)"
 preguntar OXION_API_KEY "O, en vez de la clave de Claude: clave de Oxion AI (oxionai.com → Dashboard → API Keys, empieza con cc_). Si están las dos, se usa Claude" secreta
 echo
-echo "WhatsApp: por Sent (app.sent.dm) o directo con Meta. Llena uno de los dos y deja vacío el otro."
-preguntar SENT_API_KEY "Sent: tu API key (app.sent.dm → API Keys). Enter vacío = usar Meta directo" secreta
-if [ -n "$(actual SENT_API_KEY)" ]; then
+echo "WhatsApp, elige cómo se conecta el número de la barbería:"
+echo "  web  = vinculado por QR en este servidor, sin servicios externos ni claves (no oficial: WhatsApp podría"
+echo "         bloquear el número si detecta mensajes automáticos en exceso)"
+echo "  sent = por Sent (app.sent.dm)        meta = directo con la Cloud API de Meta"
+preguntar WHATSAPP_PROVEEDOR "web, sent o meta (Enter = como está)"
+if [ "$(actual WHATSAPP_PROVEEDOR)" = "web" ]; then
+  : # sin claves: se vincula escaneando el QR (la dirección sale al final)
+elif [ "$(actual WHATSAPP_PROVEEDOR)" = "sent" ]; then
+  preguntar SENT_API_KEY "Sent: tu API key (app.sent.dm → API Keys)" secreta
   preguntar SENT_WEBHOOK_SECRET "Sent: secreto del webhook (Dashboard → Webhooks → tu webhook → el ojo; empieza con whsec_)" secreta
 else
   preguntar WHATSAPP_TOKEN "Token permanente de WhatsApp (Meta Business → Usuarios del sistema)" secreta
@@ -95,7 +101,12 @@ fi
 
 echo
 echo "════════════════════════════════════════════════════════════"
-if [ -n "$(actual SENT_API_KEY)" ]; then
+if [ "$(actual WHATSAPP_PROVEEDOR)" = "web" ]; then
+  echo " Vincula el número de la barbería: abre en la compu"
+  echo "   $url/vincular?clave=$(actual WHATSAPP_VERIFY_TOKEN)"
+  echo " y en el celular: WhatsApp → Dispositivos vinculados → Vincular un dispositivo → escanea el QR."
+  necesarias="DUENO_TELEFONO"
+elif [ -n "$(actual SENT_API_KEY)" ]; then
   echo " En Sent → Webhooks → Add Webhook pon:"
   echo "   Endpoint URL:  $url/sent"
   echo "   Eventos:       message (con received)"

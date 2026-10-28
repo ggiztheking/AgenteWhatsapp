@@ -18,10 +18,11 @@ export const config = {
     plantillaLugarLibre: process.env.WHATSAPP_PLANTILLA_LUGAR_LIBRE ?? "",
     idiomaPlantillas: process.env.WHATSAPP_IDIOMA_PLANTILLAS || "es_MX",
   },
-  // Por dónde van los WhatsApp: "meta" (la Cloud API directa) o "sent" (app.sent.dm). Sin WHATSAPP_PROVEEDOR:
-  // Sent si hay SENT_API_KEY y no hay token de Meta. Con Sent, las WHATSAPP_PLANTILLA_* son los id de sus plantillas.
+  // Por dónde van los WhatsApp: "meta" (la Cloud API directa), "sent" (app.sent.dm) o "web" (el número vinculado
+  // por QR en este servidor, sin servicios externos; ver whatsapp-web.ts). Sin WHATSAPP_PROVEEDOR: Sent si hay
+  // SENT_API_KEY y no hay token de Meta. Con Sent, las WHATSAPP_PLANTILLA_* son los id de sus plantillas.
   whatsappProveedor: (process.env.WHATSAPP_PROVEEDOR ||
-    (process.env.SENT_API_KEY && !process.env.WHATSAPP_TOKEN ? "sent" : "meta")) as "meta" | "sent",
+    (process.env.SENT_API_KEY && !process.env.WHATSAPP_TOKEN ? "sent" : "meta")) as "meta" | "sent" | "web",
   sent: {
     apiKey: process.env.SENT_API_KEY ?? "",
     // Secreto del webhook (Dashboard → Webhooks → el ojo), para comprobar que los avisos vienen de Sent.
