@@ -178,6 +178,8 @@ Lista para salir:
 
 ## Notas
 
+- **Funciones grandes:** con Spec Kit (`/speckit-specify` → `/speckit-plan` → `/speckit-tasks` → `/speckit-implement`); las reglas del proyecto están en `.specify/memory/constitution.md`.
+
 - Modelo: `CLAUDE_MODELO` en `.env` (por defecto `claude-opus-5-5`; también `claude-sonnet-5-5` o `claude-haiku-5-5`), con esfuerzo `medium`. En Opus y Sonnet usa el *fallback* del servidor (`fallbacks: "default"`): si el modelo rechaza un mensaje, la API lo reintenta con otro modelo automáticamente. Haiku no tiene ese fallback.
 - La clave de Claude es de la **API** (console.anthropic.com), que se paga por uso y por separado de la suscripción de claude.ai.
 - **Sin clave de Claude: Oxion AI.** Con `OXION_API_KEY` (y sin `ANTHROPIC_API_KEY`, o con `IA_PROVEEDOR=oxion`) el agente
