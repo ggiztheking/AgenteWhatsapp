@@ -28,7 +28,8 @@ probar() {
   probar "Página" "Sitio de Estilo Internacional" "https://$BASE/" "Estilo Internacional"
   probar "Agenda" "Reservas y panel (barberia-saas)" "https://agenda.$BASE/api/estilo-internacional/info" '"nombre"'
   probar "Base de datos" "PostgreSQL, probada a través de la agenda" "https://agenda.$BASE/api/estilo-internacional/paquetes" '"paquetes"'
-  probar "Agente WhatsApp" "Webhook que recibe los mensajes de Meta" "https://whatsapp.$BASE/" "funcionando"
+  probar "Dominio" "agendabarberias.xyz (DNS en Cloudflare)" "https://${DOMINIO:-agendabarberias.xyz}/api/estilo-internacional/info" '"nombre"'
+  probar "Agente WhatsApp" "Webhook que recibe los mensajes (Sent)" "https://whatsapp.$BASE/" "funcionando"
 } | python3 -c 'import json,sys; print(json.dumps([json.loads(l) for l in sys.stdin], ensure_ascii=False, indent=1))' > "$SALIDA/estado.json"
 
 # El servidor visto desde la API de Akamai (estado, plan, región).
