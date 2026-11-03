@@ -60,6 +60,11 @@ else
   preguntar WHATSAPP_TOKEN "Token permanente de WhatsApp (Meta Business → Usuarios del sistema)" secreta
   preguntar WHATSAPP_PHONE_NUMBER_ID "Phone number ID (Meta → WhatsApp → Configuración de la API)"
   preguntar WHATSAPP_APP_SECRET "App Secret (Meta → tu app → Configuración → Básica)" secreta
+  # Pregunta a Meta qué cuentas y números ve el token (no lo imprime; solo avisa, no bloquea).
+  if command -v python3 >/dev/null; then
+    WHATSAPP_TOKEN="$(actual WHATSAPP_TOKEN)" WHATSAPP_PHONE_NUMBER_ID="$(actual WHATSAPP_PHONE_NUMBER_ID)" \
+      python3 -I deploy/revisar-meta.py || true
+  fi
 fi
 preguntar DUENO_TELEFONO "Tu celular para los avisos: 52 + 10 dígitos, sin espacios (ej. 529991234567)"
 if [ -z "${ENV_FILE:-}" ]; then
